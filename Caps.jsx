@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { Camera, Save, FileText, Trash2, Download, Mail } from 'lucide-react';
 
-const API_BASE = 'http://localhost:4000/api';
+const API_BASE = 'https://caps-team-backend.onrender.com/api';
 
 const CAPReportSystem = () => {
   const [formData, setFormData] = useState({
