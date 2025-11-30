@@ -57,71 +57,153 @@ const CAPReportSystem = () => {
   const fileInputRef = useRef(null);
   const observationsEditorRef = useRef(null);
 
-  // Load drafts and saved reports from localStorage and then try backend
   useEffect(() => {
-    const savedDrafts = localStorage.getItem('capDrafts');
-    const savedPDFs = localStorage.getItem('capSavedReports');
-    const loggedIn = localStorage.getItem('capIsLoggedIn');
-    
-    if (savedDrafts) {
-      const localDrafts = JSON.parse(savedDrafts);
-      localDrafts.sort((a, b) => (b.id || 0) - (a.id || 0));
-      setDrafts(localDrafts);
-    }
-    if (savedPDFs) {
-      const localReports = JSON.parse(savedPDFs);
-      localReports.sort((a, b) => (b.id || 0) - (a.id || 0));
-      setSavedReports(localReports);
-    }
-
-    if (loggedIn === 'true') {
-      setIsLoggedIn(true);
-    }
-
-    // Load current draft
-    const currentDraft = localStorage.getItem('capCurrentDraft');
-    if (currentDraft) {
-      setFormData(JSON.parse(currentDraft));
-    }
-
-    // Then try to sync from backend so all devices share same data
-    const fetchRemoteData = async () => {
-      try {
-        const [draftRes, reportRes] = await Promise.all([
-          fetch(`${API_BASE}/drafts`),
-          fetch(`${API_BASE}/reports`)
-        ]);
-
-        if (draftRes.ok) {
-          const remoteDrafts = await draftRes.json();
-          remoteDrafts.sort((a, b) => (b.id || 0) - (a.id || 0));
-          setDrafts(remoteDrafts);
-          localStorage.setItem('capDrafts', JSON.stringify(remoteDrafts));
-        }
-
-        if (reportRes.ok) {
-          const remoteReports = await reportRes.json();
-          remoteReports.sort((a, b) => (b.id || 0) - (a.id || 0));
-          setSavedReports(remoteReports);
-          localStorage.setItem('capSavedReports', JSON.stringify(remoteReports));
-        }
-      } catch (err) {
-        // If backend is unreachable, keep using localStorage only
-        console.error('Error syncing with backend:', err);
+    if (observationsEditorRef.current) {
+      const currentHtml = observationsEditorRef.current.innerHTML;
+      const targetHtml = formData.observationsRichText || '';
+      if (currentHtml !== targetHtml) {
+        observationsEditorRef.current.innerHTML = targetHtml;
       }
-    };
+    }
+  }, [formData.observationsRichText]);
 
-    fetchRemoteData();
-  }, []);
+  const applyObservationFormat = (command) => {
+    const editor = observationsEditorRef.current;
+    if (!editor) return;
 
-  // Auto-save draft whenever form data changes
-  useEffect(() => {
-    const timer = setTimeout(() => {
-      localStorage.setItem('capCurrentDraft', JSON.stringify(formData));
-    }, 1000);
+    // Special handling for bullets and numbered "lists" so they work reliably on mobile
+    if (command === 'insertUnorderedList' || command === 'insertOrderedList') {
+      let html = editor.innerHTML || '';
+      const trimmed = html.trim();
 
-    return () => clearTimeout(timer);
-  }, [formData]);
+      let prefix = '• ';
+      if (command === 'insertOrderedList') {
+        // Determine next number based on existing lines (1., 2., 3., ...)
+        const text = editor.innerText || '';
+        const lines = text.split(/\n/).map(l => l.trim()).filter(l => l.length > 0);
+        let lastNumber = 0;
+        for (let i = lines.length - 1; i >= 0; i--) {
+          const match = lines[i].match(/^(\d+)\./);
+          if (match) {
+            lastNumber = parseInt(match[1], 10) || 0;
+            break;
+          }
+        }
+        const nextNumber = lastNumber + 1;
+        prefix = `${nextNumber}. `;
+      }
+
+      if (!trimmed) {
+        editor.innerHTML = prefix;
+      } else {
+        editor.innerHTML = trimmed + '<br>' + prefix;
+      }
+
+      // Move caret to the end of the content
+      editor.focus();
+      const selection = window.getSelection && window.getSelection();
+      if (selection && document.createRange) {
+        const range = document.createRange();
+        range.selectNodeContents(editor);
+        range.collapse(false);
+        selection.removeAllRanges();
+        selection.addRange(range);
+      }
+
+      setFormData(prev => ({
+        ...prev,
+        observationsRichText: editor.innerHTML
+      }));
+      return;
+    }
+
+    // Default: use execCommand for inline styles like bold/underline
+    editor.focus();
+    document.execCommand(command, false, null);
+    setFormData(prev => ({
+      ...prev,
+      observationsRichText: editor.innerHTML
+    }));
+  };
+
+  const formatText = (type) => {
+    switch (type) {
+      case 'bold':
+        applyObservationFormat('bold');
+        break;
+      case 'underline':
+        applyObservationFormat('underline');
+        break;
+      case 'list':
+        applyObservationFormat('insertUnorderedList');
+        break;
+      case 'numbered':
+        applyObservationFormat('insertOrderedList');
+        break;
+      default:
+        break;
+    }
+  };
+
+  const handleObservationsInput = () => {
+    if (observationsEditorRef.current) {
+      setFormData(prev => ({
+        ...prev,
+        observationsRichText: observationsEditorRef.current.innerHTML
+      }));
+    }
+  };
+
+  const handleObservationsKeyDown = (e) => {
+    if (e.key !== 'Enter') return;
+
+    e.preventDefault();
+    const editor = observationsEditorRef.current;
+    if (!editor) return;
+
+    const text = editor.innerText || '';
+    const lines = text.split(/\n/).map(l => l.trim()).filter(l => l.length > 0);
+
+    let prefix = '';
+    if (lines.length > 0) {
+      const last = lines[lines.length - 1];
+      const numMatch = last.match(/^(\d+)\./);
+      if (numMatch) {
+        const lastNum = parseInt(numMatch[1], 10) || 0;
+        prefix = `${lastNum + 1}. `;
+      } else if (last.startsWith('•')) {
+        prefix = '• ';
+      }
+    }
+
+    let html = editor.innerHTML || '';
+    const trimmed = html.trim();
+
+    if (prefix) {
+      if (!trimmed) {
+        editor.innerHTML = prefix;
+      } else {
+        editor.innerHTML = trimmed + '<br>' + prefix;
+      }
+    } else {
+      editor.innerHTML = html + '<br>';
+    }
+
+    editor.focus();
+    const selection = window.getSelection && window.getSelection();
+    if (selection && document.createRange) {
+      const range = document.createRange();
+      range.selectNodeContents(editor);
+      range.collapse(false);
+      selection.removeAllRanges();
+      selection.addRange(range);
+    }
+
+    setFormData(prev => ({
+      ...prev,
+      observationsRichText: editor.innerHTML
+    }));
+  };
 
   const handleInputChange = (e) => {
     const { name, value, type, checked } = e.target;
@@ -139,26 +221,6 @@ const CAPReportSystem = () => {
       setFormData(prev => ({
         ...prev,
         [name]: type === 'checkbox' ? checked : value
-      }));
-    }
-  };
-
-  const applyObservationFormat = (command) => {
-    if (observationsEditorRef.current) {
-      observationsEditorRef.current.focus();
-      document.execCommand(command, false, null);
-      setFormData(prev => ({
-        ...prev,
-        observationsRichText: observationsEditorRef.current.innerHTML
-      }));
-    }
-  };
-
-  const handleObservationsInput = () => {
-    if (observationsEditorRef.current) {
-      setFormData(prev => ({
-        ...prev,
-        observationsRichText: observationsEditorRef.current.innerHTML
       }));
     }
   };
@@ -982,36 +1044,39 @@ const CAPReportSystem = () => {
                 Based on our evaluation, of the current state of work, at the above site, we report as follows:
               </p>
               <div className="border border-gray-300 rounded-lg">
-                <div className="flex items-center gap-2 border-b bg-gray-50 px-3 py-2 text-sm">
-                  <span className="text-gray-600 mr-2">Tools:</span>
+                {/* Formatting Toolbar */}
+                <div className="flex flex-wrap gap-2 p-3 bg-gray-50 rounded-t-lg border-b">
                   <button
                     type="button"
-                    onClick={() => applyObservationFormat('bold')}
-                    className="px-2 py-1 border border-gray-300 rounded hover:bg-gray-100 font-semibold"
+                    onMouseDown={(e) => { e.preventDefault(); formatText('bold'); }}
+                    className="px-2 py-1 text-sm font-bold hover:bg-gray-200 rounded"
+                    title="Bold"
                   >
                     B
                   </button>
                   <button
                     type="button"
-                    onClick={() => applyObservationFormat('underline')}
-                    className="px-2 py-1 border border-gray-300 rounded hover:bg-gray-100 underline"
+                    onMouseDown={(e) => { e.preventDefault(); formatText('list'); }}
+                    className="px-2 py-1 text-sm hover:bg-gray-200 rounded"
+                    title="Bullet List"
                   >
-                    U
+                    •
                   </button>
                   <button
                     type="button"
-                    onClick={() => applyObservationFormat('insertUnorderedList')}
-                    className="px-2 py-1 border border-gray-300 rounded hover:bg-gray-100"
+                    onMouseDown={(e) => { e.preventDefault(); formatText('numbered'); }}
+                    className="px-2 py-1 text-sm hover:bg-gray-200 rounded"
+                    title="Numbered List"
                   >
-                    • List
+                    1.
                   </button>
                 </div>
                 <div
                   ref={observationsEditorRef}
-                  className="min-h-[120px] px-3 py-2 text-sm focus:outline-none"
+                  className="min-h-[120px] px-3 py-2 text-sm focus:outline-none rounded-b-lg"
                   contentEditable
                   onInput={handleObservationsInput}
-                  dangerouslySetInnerHTML={{ __html: formData.observationsRichText || '' }}
+                  onBlur={handleObservationsInput}
                 />
               </div>
             </div>
