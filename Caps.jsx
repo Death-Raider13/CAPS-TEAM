@@ -37,6 +37,7 @@ const CAPReportSystem = () => {
       noAuthorizationToDemolish: false,
       otherObservations: ''
     },
+    observationsRichText: '',
     executiveSummary: '',
     siteLocation: '',
     typeOfBuilding: '',
@@ -54,6 +55,7 @@ const CAPReportSystem = () => {
   const [loginPassword, setLoginPassword] = useState('');
   const [loginError, setLoginError] = useState('');
   const fileInputRef = useRef(null);
+  const observationsEditorRef = useRef(null);
 
   // Load drafts and saved reports from localStorage and then try backend
   useEffect(() => {
@@ -137,6 +139,26 @@ const CAPReportSystem = () => {
       setFormData(prev => ({
         ...prev,
         [name]: type === 'checkbox' ? checked : value
+      }));
+    }
+  };
+
+  const applyObservationFormat = (command) => {
+    if (observationsEditorRef.current) {
+      observationsEditorRef.current.focus();
+      document.execCommand(command, false, null);
+      setFormData(prev => ({
+        ...prev,
+        observationsRichText: observationsEditorRef.current.innerHTML
+      }));
+    }
+  };
+
+  const handleObservationsInput = () => {
+    if (observationsEditorRef.current) {
+      setFormData(prev => ({
+        ...prev,
+        observationsRichText: observationsEditorRef.current.innerHTML
       }));
     }
   };
@@ -273,23 +295,7 @@ const CAPReportSystem = () => {
         underConstruction: false,
         distressed: false
       },
-      observations: {
-        noticeLetter: false,
-        noPlanningPermit: false,
-        noStageCertification: false,
-        noInsurance: false,
-        noProjectBoard: false,
-        nonConformity: false,
-        harassment: false,
-        falseInformation: false,
-        breakOfSeal: false,
-        noCertificateOfCompletion: false,
-        noFireSafety: false,
-        distressedStructure: false,
-        noDemolitionPermit: false,
-        noAuthorizationToDemolish: false,
-        otherObservations: ''
-      },
+      observationsRichText: '',
       executiveSummary: '',
       siteLocation: '',
       typeOfBuilding: '',
@@ -300,33 +306,7 @@ const CAPReportSystem = () => {
   };
 
   const generatePDFHTML = (reportData) => {
-    const checkedObservations = [];
-    const observationLabels = {
-      noticeLetter: 'Commencement of development without prior (7) days notice to LASBCA/Letter of Authorization from LASBCA',
-      noPlanningPermit: 'Commencement of development without evidence of Planning Permit from LASPPPA',
-      noStageCertification: 'Construction to a particular stage without obtaining stage certification for the preceding stage',
-      noInsurance: 'Failure to insure building as required Under the Regulation',
-      noProjectBoard: 'No project board',
-      nonConformity: 'Non-conformity with Approval granted',
-      harassment: 'Harassment of Officials on Inspection',
-      falseInformation: 'Giving of false information',
-      breakOfSeal: 'Break of Government Seal',
-      noCertificateOfCompletion: 'Occupation of Building without Certificate of Completion for fitness & habitation',
-      noFireSafety: 'Failure to comply with fire safety requirements',
-      distressedStructure: 'Structure identified to be distressed/defective and fails to produce a Letter of Structural Stability on demand',
-      noDemolitionPermit: 'Demolition of Structure without demolition Permit',
-      noAuthorizationToDemolish: 'Demolition of structure without authorization to Demolish'
-    };
-
-    Object.keys(observationLabels).forEach((key, index) => {
-      if (reportData.observations[key]) {
-        checkedObservations.push(`${index + 1}. ${observationLabels[key]}`);
-      }
-    });
-
-    if (reportData.observations.otherObservations) {
-      checkedObservations.push(`15. Others: ${reportData.observations.otherObservations}`);
-    }
+    const observationsHtml = reportData.observationsRichText || '';
 
     const buildingStates = [];
     if (reportData.stateOfBuilding.abandoned) buildingStates.push('ABANDONED');
@@ -545,9 +525,11 @@ const CAPReportSystem = () => {
         <!-- Observations -->
         <div class="section">
           <div class="section-title">OBSERVATIONS</div>
-          <div class="checkbox-list">
-            ${checkedObservations.map(obs => `<div class="checkbox-item">✓ ${obs}</div>`).join('')}
-            ${checkedObservations.length === 0 ? '<p>No observations recorded</p>' : ''}
+          <p style="text-align: justify; margin-bottom: 8px;">
+            Based on our evaluation, of the current state of work, at the above site, we report as follows:
+          </p>
+          <div style="margin-top: 4px;">
+            ${observationsHtml || '<p>No observations recorded</p>'}
           </div>
         </div>
 
@@ -703,6 +685,7 @@ const CAPReportSystem = () => {
         noAuthorizationToDemolish: false,
         otherObservations: ''
       },
+      observationsRichText: '',
       executiveSummary: '',
       siteLocation: '',
       typeOfBuilding: '',
@@ -992,48 +975,44 @@ const CAPReportSystem = () => {
               </div>
             </div>
 
-            {/* Observations Checklist */}
+            {/* Observations - Rich Text */}
             <div className="mb-8">
               <h3 className="text-xl font-bold text-gray-800 mb-4">OBSERVATIONS</h3>
-              <div className="space-y-3 border border-gray-300 rounded-lg p-4">
-                {[
-                  { key: 'noticeLetter', label: '1. Commencement of development without prior (7) days notice to LASBCA/Letter of Authorization from LASBCA' },
-                  { key: 'noPlanningPermit', label: '2. Commencement of development without evidence of Planning Permit from LASPPPA' },
-                  { key: 'noStageCertification', label: '3. Construction to a particular stage without obtaining stage certification for the preceding stage' },
-                  { key: 'noInsurance', label: '4. Failure to insure building as required Under the Regulation' },
-                  { key: 'noProjectBoard', label: '5. No project board' },
-                  { key: 'nonConformity', label: '6. Non-conformity with Approval granted' },
-                  { key: 'harassment', label: '7. Harassment of Officials on Inspection' },
-                  { key: 'falseInformation', label: '8. Giving of false information' },
-                  { key: 'breakOfSeal', label: '9. Break of Government Seal' },
-                  { key: 'noCertificateOfCompletion', label: '10. Occupation of Building without Certificate of Completion for fitness & habitation' },
-                  { key: 'noFireSafety', label: '11. Failure to comply with fire safety requirements' },
-                  { key: 'distressedStructure', label: '12. Structure identified to be distressed/defective and fails to produce a Letter of Structural Stability on demand' },
-                  { key: 'noDemolitionPermit', label: '13. Demolition of Structure without demolition Permit' },
-                  { key: 'noAuthorizationToDemolish', label: '14. Demolition of structure without authorization to Demolish' }
-                ].map((item) => (
-                  <label key={item.key} className="flex items-start space-x-3 cursor-pointer hover:bg-gray-50 p-2 rounded">
-                    <input
-                      type="checkbox"
-                      name={`observations.${item.key}`}
-                      checked={formData.observations[item.key]}
-                      onChange={handleInputChange}
-                      className="w-5 h-5 text-blue-600 mt-1 flex-shrink-0"
-                    />
-                    <span className="text-sm">{item.label}</span>
-                  </label>
-                ))}
-                
-                <div className="mt-4">
-                  <label className="block text-sm font-semibold text-gray-700 mb-2">15. Others (Please specify)</label>
-                  <textarea
-                    name="observations.otherObservations"
-                    value={formData.observations.otherObservations}
-                    onChange={handleInputChange}
-                    rows="3"
-                    className="w-full border border-gray-300 rounded px-3 py-2 focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                  />
+              <p className="text-sm text-gray-700 mb-2">
+                Based on our evaluation, of the current state of work, at the above site, we report as follows:
+              </p>
+              <div className="border border-gray-300 rounded-lg">
+                <div className="flex items-center gap-2 border-b bg-gray-50 px-3 py-2 text-sm">
+                  <span className="text-gray-600 mr-2">Tools:</span>
+                  <button
+                    type="button"
+                    onClick={() => applyObservationFormat('bold')}
+                    className="px-2 py-1 border border-gray-300 rounded hover:bg-gray-100 font-semibold"
+                  >
+                    B
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => applyObservationFormat('underline')}
+                    className="px-2 py-1 border border-gray-300 rounded hover:bg-gray-100 underline"
+                  >
+                    U
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => applyObservationFormat('insertUnorderedList')}
+                    className="px-2 py-1 border border-gray-300 rounded hover:bg-gray-100"
+                  >
+                    • List
+                  </button>
                 </div>
+                <div
+                  ref={observationsEditorRef}
+                  className="min-h-[120px] px-3 py-2 text-sm focus:outline-none"
+                  contentEditable
+                  onInput={handleObservationsInput}
+                  dangerouslySetInnerHTML={{ __html: formData.observationsRichText || '' }}
+                />
               </div>
             </div>
 
