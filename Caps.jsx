@@ -249,6 +249,48 @@ const CAPReportSystem = () => {
     alert('Draft saved successfully!');
     setActiveTab('drafts');
     window.scrollTo({ top: 0, behavior: 'smooth' });
+
+    localStorage.removeItem('capCurrentDraft');
+    setFormData({
+      reportNumber: '',
+      district: '',
+      capPractitioner: '',
+      addressOfInfraction: '',
+      nearestLandmark: '',
+      gpsCoordinates: '',
+      dateOfIdentification: '',
+      numberOfFloors: '',
+      stageOfWork: '',
+      stateOfBuilding: {
+        abandoned: false,
+        completed: false,
+        underConstruction: false,
+        distressed: false
+      },
+      observations: {
+        noticeLetter: false,
+        noPlanningPermit: false,
+        noStageCertification: false,
+        noInsurance: false,
+        noProjectBoard: false,
+        nonConformity: false,
+        harassment: false,
+        falseInformation: false,
+        breakOfSeal: false,
+        noCertificateOfCompletion: false,
+        noFireSafety: false,
+        distressedStructure: false,
+        noDemolitionPermit: false,
+        noAuthorizationToDemolish: false,
+        otherObservations: ''
+      },
+      executiveSummary: '',
+      siteLocation: '',
+      typeOfBuilding: '',
+      recommendationStatus: '',
+      challengesAndLimitations: '',
+      photos: []
+    });
   };
 
   const generatePDFHTML = (reportData) => {
