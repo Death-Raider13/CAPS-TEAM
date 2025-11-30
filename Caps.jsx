@@ -247,6 +247,8 @@ const CAPReportSystem = () => {
     }
 
     alert('Draft saved successfully!');
+    setActiveTab('drafts');
+    window.scrollTo({ top: 0, behavior: 'smooth' });
   };
 
   const generatePDFHTML = (reportData) => {
@@ -616,7 +618,9 @@ const CAPReportSystem = () => {
     localStorage.removeItem('capCurrentDraft');
     
     alert('Report saved successfully! You can now download or email it from the "Saved Reports" section.');
-    
+    setActiveTab('saved');
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+
     // Reset form
     setFormData({
       reportNumber: '',
