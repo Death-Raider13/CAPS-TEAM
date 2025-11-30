@@ -62,10 +62,14 @@ const CAPReportSystem = () => {
     const loggedIn = localStorage.getItem('capIsLoggedIn');
     
     if (savedDrafts) {
-      setDrafts(JSON.parse(savedDrafts));
+      const localDrafts = JSON.parse(savedDrafts);
+      localDrafts.sort((a, b) => (b.id || 0) - (a.id || 0));
+      setDrafts(localDrafts);
     }
     if (savedPDFs) {
-      setSavedReports(JSON.parse(savedPDFs));
+      const localReports = JSON.parse(savedPDFs);
+      localReports.sort((a, b) => (b.id || 0) - (a.id || 0));
+      setSavedReports(localReports);
     }
 
     if (loggedIn === 'true') {
@@ -88,12 +92,14 @@ const CAPReportSystem = () => {
 
         if (draftRes.ok) {
           const remoteDrafts = await draftRes.json();
+          remoteDrafts.sort((a, b) => (b.id || 0) - (a.id || 0));
           setDrafts(remoteDrafts);
           localStorage.setItem('capDrafts', JSON.stringify(remoteDrafts));
         }
 
         if (reportRes.ok) {
           const remoteReports = await reportRes.json();
+          remoteReports.sort((a, b) => (b.id || 0) - (a.id || 0));
           setSavedReports(remoteReports);
           localStorage.setItem('capSavedReports', JSON.stringify(remoteReports));
         }
@@ -231,7 +237,7 @@ const CAPReportSystem = () => {
       savedAt: new Date().toLocaleString()
     };
 
-    const updatedDrafts = [...drafts, draft];
+    const updatedDrafts = [draft, ...drafts];
     setDrafts(updatedDrafts);
     localStorage.setItem('capDrafts', JSON.stringify(updatedDrafts));
 
@@ -641,7 +647,7 @@ const CAPReportSystem = () => {
       generatedAt: new Date().toLocaleString()
     };
 
-    const updatedReports = [...savedReports, reportData];
+    const updatedReports = [reportData, ...savedReports];
     setSavedReports(updatedReports);
     localStorage.setItem('capSavedReports', JSON.stringify(updatedReports));
 
