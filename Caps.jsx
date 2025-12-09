@@ -240,281 +240,229 @@ const CAPReportSystem = () => {
     }
   };
 
-  const handleLogout = () => {
-    setIsLoggedIn(false);
-    localStorage.removeItem('capIsLoggedIn');
-  };
+const handleObservationsKeyDown = (e) => {
+  if (e.key !== 'Enter') return;
 
-  const handlePhotoCapture = async (e) => {
-    const files = Array.from(e.target.files);
-    
-    for (const file of files) {
-      if (file && file.type.startsWith('image/')) {
-        try {
-          // Get current GPS position
-          const position = await new Promise((resolve, reject) => {
-            navigator.geolocation.getCurrentPosition(resolve, reject, {
-              enableHighAccuracy: true,
-              timeout: 5000,
-              maximumAge: 0
-            });
-          });
+  e.preventDefault();
+  const editor = observationsEditorRef.current;
+  if (!editor) return;
 
-          const reader = new FileReader();
-          reader.onload = (event) => {
-            const newPhoto = {
-              id: Date.now() + Math.random(),
-              data: event.target.result,
-              gps: `Lat: ${position.coords.latitude.toFixed(6)}, Long: ${position.coords.longitude.toFixed(6)}`,
-              timestamp: new Date().toLocaleString()
-            };
+  const text = editor.innerText || '';
+  const lines = text.split(/\n/).map(l => l.trim()).filter(l => l.length > 0);
 
-            setFormData(prev => {
-              const updatedPhotos = [...prev.photos, newPhoto];
-              const hasValidGps = newPhoto.gps && newPhoto.gps !== 'GPS location unavailable';
-              // If user hasn't manually entered GPS yet, auto-fill from photo
-              const gpsCoordinates = !prev.gpsCoordinates && hasValidGps
-                ? newPhoto.gps
-                : prev.gpsCoordinates;
-
-              return {
-                ...prev,
-                photos: updatedPhotos,
-                gpsCoordinates
-              };
-            });
-          };
-          reader.readAsDataURL(file);
-        } catch (error) {
-          // If GPS fails, still add photo without GPS
-          const reader = new FileReader();
-          reader.onload = (event) => {
-            const newPhoto = {
-              id: Date.now() + Math.random(),
-              data: event.target.result,
-              gps: 'GPS location unavailable',
-              timestamp: new Date().toLocaleString()
-            };
-
-            setFormData(prev => ({
-              ...prev,
-              photos: [...prev.photos, newPhoto]
-            }));
-          };
-          reader.readAsDataURL(file);
-        }
-      }
+  let prefix = '';
+  if (lines.length > 0) {
+    const last = lines[lines.length - 1];
+    const numMatch = last.match(/^(\d+)\./);
+    if (numMatch) {
+      const lastNum = parseInt(numMatch[1], 10) || 0;
+      prefix = `${lastNum + 1}. `;
+    } else if (last.startsWith('•')) {
+      prefix = '• ';
     }
-  };
+  }
 
-  const removePhoto = (photoId) => {
+  let html = editor.innerHTML || '';
+  const trimmed = html.trim();
+
+  if (prefix) {
+    if (!trimmed) {
+      editor.innerHTML = prefix;
+    } else {
+      editor.innerHTML = trimmed + '<br>' + prefix;
+    }
+  } else {
+    editor.innerHTML = html + '<br>';
+  }
+
+  editor.focus();
+  const selection = window.getSelection && window.getSelection();
+  if (selection && document.createRange) {
+    const range = document.createRange();
+    range.selectNodeContents(editor);
+    range.collapse(false);
+    selection.removeAllRanges();
+    selection.addRange(range);
+  }
+
+  setFormData(prev => ({
+    ...prev,
+    observationsRichText: editor.innerHTML
+  }));
+};
+
+const handleInputChange = (e) => {
+  const { name, value, type, checked } = e.target;
+  
+  if (name.includes('.')) {
+    const [parent, child] = name.split('.');
     setFormData(prev => ({
       ...prev,
-      photos: prev.photos.filter(p => p.id !== photoId)
+      [parent]: {
+        ...prev[parent],
+        [child]: type === 'checkbox' ? checked : value
+      }
     }));
-  };
+  } else {
+    setFormData(prev => ({
+      ...prev,
+      [name]: type === 'checkbox' ? checked : value
+    }));
+  }
+};
 
-  const saveToDraft = async () => {
-    const draft = {
-      id: Date.now(),
-      ...formData,
-      savedAt: new Date().toLocaleString()
-    };
+const handleLoginSubmit = (e) => {
+  e.preventDefault();
+  const username = loginUsername.trim();
+  const password = loginPassword.trim();
 
-    const updatedDrafts = [draft, ...drafts];
-    setDrafts(updatedDrafts);
-    localStorage.setItem('capDrafts', JSON.stringify(updatedDrafts));
+  if (username === 'CAPS MONITORING TEAM' && password === 'CAPS') {
+    setIsLoggedIn(true);
+    localStorage.setItem('capIsLoggedIn', 'true');
+    setLoginError('');
+    setLoginPassword('');
+  } else {
+    setLoginError('Invalid username or password');
+  }
+};
 
-    // Sync to backend so drafts are shared across devices
-    try {
-      await fetch(`${API_BASE}/drafts`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(draft)
-      });
-    } catch (err) {
-      console.error('Error saving draft to backend:', err);
+const handleLogout = () => {
+  setIsLoggedIn(false);
+  localStorage.removeItem('capIsLoggedIn');
+};
+
+const handlePhotoCapture = async (e) => {
+  const files = Array.from(e.target.files);
+  
+  for (const file of files) {
+    if (file && file.type.startsWith('image/')) {
+      try {
+        // Get current GPS position
+        const position = await new Promise((resolve, reject) => {
+          navigator.geolocation.getCurrentPosition(resolve, reject, {
+            enableHighAccuracy: true,
+            timeout: 5000,
+            maximumAge: 0
+          });
+        });
+
+        const reader = new FileReader();
+        reader.onload = (event) => {
+          const newPhoto = {
+            id: Date.now() + Math.random(),
+            data: event.target.result,
+            gps: `Lat: ${position.coords.latitude.toFixed(6)}, Long: ${position.coords.longitude.toFixed(6)}`,
+            timestamp: new Date().toLocaleString(),
+            title: ''
+          };
+
+          setFormData(prev => {
+            const updatedPhotos = [...prev.photos, newPhoto];
+            const hasValidGps = newPhoto.gps && newPhoto.gps !== 'GPS location unavailable';
+            // If user hasn't manually entered GPS yet, auto-fill from photo
+            const gpsCoordinates = !prev.gpsCoordinates && hasValidGps
+              ? newPhoto.gps
+              : prev.gpsCoordinates;
+
+            return {
+              ...prev,
+              photos: updatedPhotos,
+              gpsCoordinates
+            };
+          });
+        };
+        reader.readAsDataURL(file);
+      } catch (error) {
+        // If GPS fails, still add photo without GPS
+        const reader = new FileReader();
+        reader.onload = (event) => {
+          const newPhoto = {
+            id: Date.now() + Math.random(),
+            data: event.target.result,
+            gps: 'GPS location unavailable',
+            timestamp: new Date().toLocaleString(),
+            title: ''
+          };
+
+          setFormData(prev => ({
+            ...prev,
+            photos: [...prev.photos, newPhoto]
+          }));
+        };
+        reader.readAsDataURL(file);
+      }
     }
+  }
+};
 
-    alert('Draft saved successfully!');
-    setActiveTab('drafts');
-    window.scrollTo({ top: 0, behavior: 'smooth' });
+const removePhoto = (photoId) => {
+  setFormData(prev => ({
+    ...prev,
+    photos: prev.photos.filter(p => p.id !== photoId)
+  }));
+};
 
-    localStorage.removeItem('capCurrentDraft');
-    setFormData({
-      reportNumber: '',
-      district: '',
-      capPractitioner: '',
-      addressOfInfraction: '',
-      nearestLandmark: '',
-      gpsCoordinates: '',
-      dateOfIdentification: '',
-      numberOfFloors: '',
-      stageOfWork: '',
-      stateOfBuilding: {
-        abandoned: false,
-        completed: false,
-        underConstruction: false,
-        distressed: false
-      },
-      observationsRichText: '',
-      executiveSummary: '',
-      siteLocation: '',
-      typeOfBuilding: '',
-      recommendationStatus: '',
-      challengesAndLimitations: '',
-      photos: []
-    });
+const handlePhotoTitleChange = (photoId, value) => {
+  setFormData(prev => ({
+    ...prev,
+    photos: prev.photos.map(photo =>
+      photo.id === photoId ? { ...photo, title: value } : photo
+    )
+  }));
+};
+
+const saveToDraft = async () => {
+  const draft = {
+    id: Date.now(),
+    ...formData,
+    savedAt: new Date().toLocaleString()
   };
 
-  const generatePDFHTML = (reportData) => {
-    const observationsHtml = reportData.observationsRichText || '';
+  const updatedDrafts = [draft, ...drafts];
+  setDrafts(updatedDrafts);
+  localStorage.setItem('capDrafts', JSON.stringify(updatedDrafts));
 
-    const buildingStates = [];
-    if (reportData.stateOfBuilding.abandoned) buildingStates.push('ABANDONED');
-    if (reportData.stateOfBuilding.completed) buildingStates.push('COMPLETED');
-    if (reportData.stateOfBuilding.underConstruction) buildingStates.push('UNDER CONSTRUCTION/RENOVATION');
-    if (reportData.stateOfBuilding.distressed) buildingStates.push('DISTRESSED/DEFECTIVE');
+  // Sync to backend so drafts are shared across devices
+  try {
+    await fetch(`${API_BASE}/drafts`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(draft)
+    });
+  } catch (err) {
+    console.error('Error saving draft to backend:', err);
+  }
 
-    const photoRows = reportData.photos.map((photo, index) => `
-      <div class="photo-card">
-        <div class="photo-inner">
-          <img src="${photo.data}" class="photo-image" />
-          <p class="photo-title">APPENDIX ${index + 1}</p>
-          <p class="photo-meta">GPS: ${photo.gps}</p>
-          <p class="photo-time">${photo.timestamp}</p>
-        </div>
-      </div>
-    `).join('');
+  alert('Draft saved successfully!');
+  setActiveTab('drafts');
+  window.scrollTo({ top: 0, behavior: 'smooth' });
 
-    return `
-      <!DOCTYPE html>
-      <html>
-      <head>
-        <meta charset="utf-8">
-        <title>CAP Observation Report - ${reportData.reportNumber || 'Draft'}</title>
-        <style>
-          @page {
-            size: A4;
-            margin: 20mm;
-          }
-          body {
-            font-family: Arial, sans-serif;
-            font-size: 11pt;
-            line-height: 1.4;
-            color: #000;
-            margin: 0;
-          }
-          .page-footer {
-            position: fixed;
-            left: 20mm;
-            right: 20mm;
-            bottom: 10mm;
-            z-index: -1;
-          }
-          .page-footer img {
-            width: 100%;
-            height: auto;
-          }
-          .page-header-first {
-            text-align: center;
-            margin-bottom: 12px;
-          }
-          .page-header-first img {
-            width: 100%;
-            height: auto;
-          }
-          .page-content {
-            /* leave space above footer image */
-            padding-bottom: 35mm;
-          }
-
-          .report-title {
-            text-align: center;
-            margin: 30px 0;
-          }
-          .report-title h2 {
-            font-size: 18pt;
-            font-weight: bold;
-            margin: 5px 0;
-          }
-          .report-title p {
-            font-size: 12pt;
-            color: #666;
-          }
-          .section {
-            margin-bottom: 25px;
-            page-break-inside: avoid;
-          }
-          .section-title {
-            font-size: 14pt;
-            font-weight: bold;
-            margin-bottom: 15px;
-            padding-bottom: 5px;
-            border-bottom: 2px solid #4A90E2;
-          }
-          table {
-            width: 100%;
-            border-collapse: collapse;
-            margin-bottom: 15px;
-          }
-          td {
-            padding: 8px;
-            border: 1px solid #ddd;
-            vertical-align: top;
-          }
-          .label {
-            font-weight: bold;
-            width: 35%;
-            background-color: #f5f5f5;
-          }
-          .checkbox-list {
-            margin: 10px 0;
-          }
-          .checkbox-item {
-            padding: 5px 0;
-            font-size: 10pt;
-          }
-          .signature-section {
-            margin-top: 40px;
-            text-align: center;
-          }
-          .signature-image {
-            max-width: 260px;
-            height: auto;
-            margin: 24px auto 12px auto;
-            display: block;
-          }
-          .page-break {
-            page-break-before: always;
-          }
-          .photos-grid {
-            display: grid;
-            grid-template-columns: repeat(2, 1fr);
-            gap: 10px;
-          }
-          .photo-card {
-            page-break-inside: avoid;
-          }
-          .photo-inner {
-            border: 1px solid #ddd;
-            padding: 8px;
-            text-align: center;
-          }
-          .photo-image {
-            width: 100%;
-            height: 160px;
-            object-fit: cover;
-          }
-          .photo-title {
-            margin-top: 8px;
-            font-weight: bold;
-          }
-          .photo-meta {
-            font-size: 12px;
-            color: #666;
-          }
-          .photo-time {
+  localStorage.removeItem('capCurrentDraft');
+  setFormData({
+    reportNumber: '',
+    district: '',
+    capPractitioner: '',
+    addressOfInfraction: '',
+    nearestLandmark: '',
+    gpsCoordinates: '',
+    dateOfIdentification: '',
+    numberOfFloors: '',
+    stageOfWork: '',
+    stateOfBuilding: {
+      abandoned: false,
+      completed: false,
+      underConstruction: false,
+      distressed: false
+    },
+    observationsRichText: '',
+    executiveSummary: '',
+    siteLocation: '',
+    typeOfBuilding: '',
+    recommendationStatus: '',
+    challengesAndLimitations: '',
+    photos: []
+  });
+};
             font-size: 11px;
             color: #999;
           }
@@ -1118,7 +1066,6 @@ const CAPReportSystem = () => {
                 onChange={handlePhotoCapture}
                 accept="image/*"
                 multiple
-                capture="environment"
                 className="hidden"
               />
               
@@ -1140,6 +1087,13 @@ const CAPReportSystem = () => {
                         <p className="text-gray-600">{photo.gps}</p>
                         <p className="text-gray-500 text-xs">{photo.timestamp}</p>
                       </div>
+                      <input
+                        type="text"
+                        value={photo.title || ''}
+                        onChange={(e) => handlePhotoTitleChange(photo.id, e.target.value)}
+                        placeholder="Enter photo title / description"
+                        className="mt-2 w-full border border-gray-300 rounded px-2 py-1 text-xs"
+                      />
                       <button
                         onClick={() => removePhoto(photo.id)}
                         className="mt-2 text-red-600 hover:text-red-800 text-sm flex items-center gap-1"
