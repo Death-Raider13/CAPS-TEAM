@@ -67,6 +67,54 @@ const CAPReportSystem = () => {
     }
   }, [formData.observationsRichText]);
 
+  // Load existing drafts and reports from backend (or localStorage fallback) after login
+  useEffect(() => {
+    if (!isLoggedIn) return;
+
+    const loadData = async () => {
+      try {
+        const [draftRes, reportRes] = await Promise.all([
+          fetch(`${API_BASE}/drafts`),
+          fetch(`${API_BASE}/reports`)
+        ]);
+
+        const draftsData = await draftRes.json();
+        const reportsData = await reportRes.json();
+
+        const safeDrafts = Array.isArray(draftsData) ? draftsData : [];
+        const safeReports = Array.isArray(reportsData) ? reportsData : [];
+
+        setDrafts(safeDrafts);
+        setSavedReports(safeReports);
+
+        try {
+          localStorage.setItem('capDrafts', JSON.stringify(safeDrafts));
+          localStorage.setItem('capSavedReports', JSON.stringify(safeReports));
+        } catch (storageErr) {
+          console.error('Error caching drafts/reports to localStorage:', storageErr);
+        }
+      } catch (err) {
+        console.error('Error loading drafts/reports from backend:', err);
+
+        // Fallback to any data already stored locally
+        try {
+          const storedDrafts = localStorage.getItem('capDrafts');
+          const storedReports = localStorage.getItem('capSavedReports');
+          if (storedDrafts) {
+            setDrafts(JSON.parse(storedDrafts));
+          }
+          if (storedReports) {
+            setSavedReports(JSON.parse(storedReports));
+          }
+        } catch (parseErr) {
+          console.error('Error reading drafts/reports from localStorage:', parseErr);
+        }
+      }
+    };
+
+    loadData();
+  }, [isLoggedIn]);
+
   const applyObservationFormat = (command) => {
     const editor = observationsEditorRef.current;
     if (!editor) return;
@@ -207,7 +255,7 @@ const CAPReportSystem = () => {
 
   const handleInputChange = (e) => {
     const { name, value, type, checked } = e.target;
-    
+
     if (name.includes('.')) {
       const [parent, child] = name.split('.');
       setFormData(prev => ({
@@ -240,233 +288,247 @@ const CAPReportSystem = () => {
     }
   };
 
-const handleObservationsKeyDown = (e) => {
-  if (e.key !== 'Enter') return;
-
-  e.preventDefault();
-  const editor = observationsEditorRef.current;
-  if (!editor) return;
-
-  const text = editor.innerText || '';
-  const lines = text.split(/\n/).map(l => l.trim()).filter(l => l.length > 0);
-
-  let prefix = '';
-  if (lines.length > 0) {
-    const last = lines[lines.length - 1];
-    const numMatch = last.match(/^(\d+)\./);
-    if (numMatch) {
-      const lastNum = parseInt(numMatch[1], 10) || 0;
-      prefix = `${lastNum + 1}. `;
-    } else if (last.startsWith('•')) {
-      prefix = '• ';
-    }
-  }
-
-  let html = editor.innerHTML || '';
-  const trimmed = html.trim();
-
-  if (prefix) {
-    if (!trimmed) {
-      editor.innerHTML = prefix;
-    } else {
-      editor.innerHTML = trimmed + '<br>' + prefix;
-    }
-  } else {
-    editor.innerHTML = html + '<br>';
-  }
-
-  editor.focus();
-  const selection = window.getSelection && window.getSelection();
-  if (selection && document.createRange) {
-    const range = document.createRange();
-    range.selectNodeContents(editor);
-    range.collapse(false);
-    selection.removeAllRanges();
-    selection.addRange(range);
-  }
-
-  setFormData(prev => ({
-    ...prev,
-    observationsRichText: editor.innerHTML
-  }));
-};
-
-const handleInputChange = (e) => {
-  const { name, value, type, checked } = e.target;
-  
-  if (name.includes('.')) {
-    const [parent, child] = name.split('.');
-    setFormData(prev => ({
-      ...prev,
-      [parent]: {
-        ...prev[parent],
-        [child]: type === 'checkbox' ? checked : value
-      }
-    }));
-  } else {
-    setFormData(prev => ({
-      ...prev,
-      [name]: type === 'checkbox' ? checked : value
-    }));
-  }
-};
-
-const handleLoginSubmit = (e) => {
-  e.preventDefault();
-  const username = loginUsername.trim();
-  const password = loginPassword.trim();
-
-  if (username === 'CAPS MONITORING TEAM' && password === 'CAPS') {
-    setIsLoggedIn(true);
-    localStorage.setItem('capIsLoggedIn', 'true');
-    setLoginError('');
-    setLoginPassword('');
-  } else {
-    setLoginError('Invalid username or password');
-  }
-};
-
-const handleLogout = () => {
-  setIsLoggedIn(false);
-  localStorage.removeItem('capIsLoggedIn');
-};
-
-const handlePhotoCapture = async (e) => {
-  const files = Array.from(e.target.files);
-  
-  for (const file of files) {
-    if (file && file.type.startsWith('image/')) {
-      try {
-        // Get current GPS position
-        const position = await new Promise((resolve, reject) => {
-          navigator.geolocation.getCurrentPosition(resolve, reject, {
-            enableHighAccuracy: true,
-            timeout: 5000,
-            maximumAge: 0
-          });
-        });
-
-        const reader = new FileReader();
-        reader.onload = (event) => {
-          const newPhoto = {
-            id: Date.now() + Math.random(),
-            data: event.target.result,
-            gps: `Lat: ${position.coords.latitude.toFixed(6)}, Long: ${position.coords.longitude.toFixed(6)}`,
-            timestamp: new Date().toLocaleString(),
-            title: ''
-          };
-
-          setFormData(prev => {
-            const updatedPhotos = [...prev.photos, newPhoto];
-            const hasValidGps = newPhoto.gps && newPhoto.gps !== 'GPS location unavailable';
-            // If user hasn't manually entered GPS yet, auto-fill from photo
-            const gpsCoordinates = !prev.gpsCoordinates && hasValidGps
-              ? newPhoto.gps
-              : prev.gpsCoordinates;
-
-            return {
-              ...prev,
-              photos: updatedPhotos,
-              gpsCoordinates
-            };
-          });
-        };
-        reader.readAsDataURL(file);
-      } catch (error) {
-        // If GPS fails, still add photo without GPS
-        const reader = new FileReader();
-        reader.onload = (event) => {
-          const newPhoto = {
-            id: Date.now() + Math.random(),
-            data: event.target.result,
-            gps: 'GPS location unavailable',
-            timestamp: new Date().toLocaleString(),
-            title: ''
-          };
-
-          setFormData(prev => ({
-            ...prev,
-            photos: [...prev.photos, newPhoto]
-          }));
-        };
-        reader.readAsDataURL(file);
-      }
-    }
-  }
-};
-
-const removePhoto = (photoId) => {
-  setFormData(prev => ({
-    ...prev,
-    photos: prev.photos.filter(p => p.id !== photoId)
-  }));
-};
-
-const handlePhotoTitleChange = (photoId, value) => {
-  setFormData(prev => ({
-    ...prev,
-    photos: prev.photos.map(photo =>
-      photo.id === photoId ? { ...photo, title: value } : photo
-    )
-  }));
-};
-
-const saveToDraft = async () => {
-  const draft = {
-    id: Date.now(),
-    ...formData,
-    savedAt: new Date().toLocaleString()
+  const handleLogout = () => {
+    setIsLoggedIn(false);
+    localStorage.removeItem('capIsLoggedIn');
   };
 
-  const updatedDrafts = [draft, ...drafts];
-  setDrafts(updatedDrafts);
-  localStorage.setItem('capDrafts', JSON.stringify(updatedDrafts));
+  const handlePhotoCapture = async (e) => {
+    const files = Array.from(e.target.files);
 
-  // Sync to backend so drafts are shared across devices
-  try {
-    await fetch(`${API_BASE}/drafts`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(draft)
+    for (const file of files) {
+      if (file && file.type.startsWith('image/')) {
+        try {
+          const position = await new Promise((resolve, reject) => {
+            navigator.geolocation.getCurrentPosition(resolve, reject, {
+              enableHighAccuracy: true,
+              timeout: 5000,
+              maximumAge: 0
+            });
+          });
+
+          const reader = new FileReader();
+          reader.onload = (event) => {
+            const newPhoto = {
+              id: Date.now() + Math.random(),
+              data: event.target.result,
+              gps: `Lat: ${position.coords.latitude.toFixed(6)}, Long: ${position.coords.longitude.toFixed(6)}`,
+              timestamp: new Date().toLocaleString(),
+              title: ''
+            };
+
+            setFormData(prev => {
+              const updatedPhotos = [...prev.photos, newPhoto];
+              const hasValidGps = newPhoto.gps && newPhoto.gps !== 'GPS location unavailable';
+              const gpsCoordinates = !prev.gpsCoordinates && hasValidGps
+                ? newPhoto.gps
+                : prev.gpsCoordinates;
+
+              return {
+                ...prev,
+                photos: updatedPhotos,
+                gpsCoordinates
+              };
+            });
+          };
+          reader.readAsDataURL(file);
+        } catch (error) {
+          const reader = new FileReader();
+          reader.onload = (event) => {
+            const newPhoto = {
+              id: Date.now() + Math.random(),
+              data: event.target.result,
+              gps: 'GPS location unavailable',
+              timestamp: new Date().toLocaleString(),
+              title: ''
+            };
+
+            setFormData(prev => ({
+              ...prev,
+              photos: [...prev.photos, newPhoto]
+            }));
+          };
+          reader.readAsDataURL(file);
+        }
+      }
+    }
+  };
+
+  const removePhoto = (photoId) => {
+    setFormData(prev => ({
+      ...prev,
+      photos: prev.photos.filter(p => p.id !== photoId)
+    }));
+  };
+
+  const handlePhotoTitleChange = (photoId, value) => {
+    setFormData(prev => ({
+      ...prev,
+      photos: prev.photos.map(photo =>
+        photo.id === photoId ? { ...photo, title: value } : photo
+      )
+    }));
+  };
+
+  const saveToDraft = async () => {
+    const draft = {
+      id: Date.now(),
+      ...formData,
+      savedAt: new Date().toLocaleString()
+    };
+
+    const updatedDrafts = [draft, ...drafts];
+    setDrafts(updatedDrafts);
+    localStorage.setItem('capDrafts', JSON.stringify(updatedDrafts));
+
+    try {
+      await fetch(`${API_BASE}/drafts`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(draft)
+      });
+    } catch (err) {
+      console.error('Error saving draft to backend:', err);
+    }
+
+    alert('Draft saved successfully!');
+    setActiveTab('drafts');
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+
+    localStorage.removeItem('capCurrentDraft');
+    setFormData({
+      reportNumber: '',
+      district: '',
+      capPractitioner: '',
+      addressOfInfraction: '',
+      nearestLandmark: '',
+      gpsCoordinates: '',
+      dateOfIdentification: '',
+      numberOfFloors: '',
+      stageOfWork: '',
+      stateOfBuilding: {
+        abandoned: false,
+        completed: false,
+        underConstruction: false,
+        distressed: false
+      },
+      observationsRichText: '',
+      executiveSummary: '',
+      siteLocation: '',
+      typeOfBuilding: '',
+      recommendationStatus: '',
+      challengesAndLimitations: '',
+      photos: []
     });
-  } catch (err) {
-    console.error('Error saving draft to backend:', err);
-  }
+  };
 
-  alert('Draft saved successfully!');
-  setActiveTab('drafts');
-  window.scrollTo({ top: 0, behavior: 'smooth' });
+  const generatePDFHTML = (reportData) => {
+    const buildingStates = [];
+    if (reportData.stateOfBuilding?.abandoned) buildingStates.push('ABANDONED');
+    if (reportData.stateOfBuilding?.completed) buildingStates.push('COMPLETED');
+    if (reportData.stateOfBuilding?.underConstruction) buildingStates.push('UNDER CONSTRUCTION/RENOVATION');
+    if (reportData.stateOfBuilding?.distressed) buildingStates.push('DISTRESSED/DEFECTIVE');
 
-  localStorage.removeItem('capCurrentDraft');
-  setFormData({
-    reportNumber: '',
-    district: '',
-    capPractitioner: '',
-    addressOfInfraction: '',
-    nearestLandmark: '',
-    gpsCoordinates: '',
-    dateOfIdentification: '',
-    numberOfFloors: '',
-    stageOfWork: '',
-    stateOfBuilding: {
-      abandoned: false,
-      completed: false,
-      underConstruction: false,
-      distressed: false
-    },
-    observationsRichText: '',
-    executiveSummary: '',
-    siteLocation: '',
-    typeOfBuilding: '',
-    recommendationStatus: '',
-    challengesAndLimitations: '',
-    photos: []
-  });
-};
+    const observationsHtml = reportData.observationsRichText || '';
+
+    const photoRows = (reportData.photos || []).map((photo, index) => `
+      <div class="photo-card">
+        <div class="photo-inner">
+          <img src="${photo.data}" class="photo-image" />
+          <p class="photo-title">APPENDIX ${index + 1}</p>
+          ${photo.title ? `<p class="photo-custom-title">${photo.title}</p>` : ''}
+          <p class="photo-meta">GPS: ${photo.gps}</p>
+          <p class="photo-time">${photo.timestamp}</p>
+        </div>
+      </div>
+    `).join('');
+
+    return `
+      <!DOCTYPE html>
+      <html>
+      <head>
+        <meta charset="utf-8">
+        <title>CAP Observation Report - ${reportData.reportNumber || 'Draft'}</title>
+        <style>
+          @page {
+            size: A4;
+            margin: 20mm;
+          }
+          body {
+            font-family: Arial, sans-serif;
+            font-size: 11pt;
+            line-height: 1.4;
+            color: #000;
+            margin: 0;
+          }
+          .page-footer {
+            position: fixed;
+            left: 20mm;
+            right: 20mm;
+            bottom: 10mm;
+            z-index: -1;
+          }
+          .page-footer img {
+            width: 100%;
+          }
+          .page-header-first img {
+            width: 100%;
+            display: block;
+          }
+          .section {
+            margin-bottom: 16px;
+          }
+          .section-title {
+            font-weight: bold;
+            margin-bottom: 8px;
+          }
+          table {
+            width: 100%;
+            border-collapse: collapse;
+          }
+          td {
+            padding: 4px 6px;
+            vertical-align: top;
+          }
+          td.label {
+            width: 35%;
+            font-weight: bold;
+          }
+          .photos-grid {
+            display: grid;
+            grid-template-columns: repeat(2, 1fr);
+            gap: 10px;
+          }
+          .photo-card {
+            page-break-inside: avoid;
+          }
+          .photo-inner {
+            border: 1px solid #ddd;
+            padding: 8px;
+            text-align: center;
+          }
+          .photo-image {
+            width: 100%;
+            height: 160px;
+            object-fit: cover;
+          }
+          .photo-title {
+            margin-top: 8px;
+            font-weight: bold;
+          }
+          .photo-custom-title {
+            margin-top: 4px;
+            font-size: 10px;
+            font-style: italic;
+          }
+          .photo-meta {
+            font-size: 12px;
+            color: #666;
+          }
+          .photo-time {
             font-size: 11px;
             color: #999;
           }
-
           @media print {
             body { margin: 0; }
             .no-print { display: none; }
@@ -478,98 +540,80 @@ const saveToDraft = async () => {
           <img src="/footer.png" alt="Footer" />
         </div>
         <div class="page-content">
-        <div class="page-header-first">
-          <img src="/header.png" alt="Header" />
-        </div>
-        <!-- Report Title -->
-        <div class="report-title">
-
-          <h2>CAP OBSERVATION SHEET</h2>
-          <p>Monitoring and Regulation of Buildings Report</p>
-          <p><strong>Report No: ${reportData.reportNumber || 'DRAFT'}</strong></p>
-        </div>
-
-        <!-- Basic Information -->
-        <div class="section">
-
-          <table>
-            <tr>
-              <td class="label">DISTRICT</td>
-              <td>${reportData.district || 'N/A'}</td>
-            </tr>
-            <tr>
-              <td class="label">CAP PRACTITIONER</td>
-              <td>${reportData.capPractitioner || 'N/A'}</td>
-            </tr>
-            <tr>
-              <td class="label">ADDRESS OF INFRACTION</td>
-              <td>${reportData.addressOfInfraction || 'N/A'}</td>
-            </tr>
-            <tr>
-              <td class="label">NEAREST LANDMARK (IF ANY)</td>
-              <td>${reportData.nearestLandmark || 'N/A'}</td>
-            </tr>
-            <tr>
-              <td class="label">GPS COORDINATES</td>
-              <td>${reportData.gpsCoordinates || 'N/A'}</td>
-            </tr>
-            <tr>
-              <td class="label">DATE OF IDENTIFICATION</td>
-              <td>${reportData.dateOfIdentification || 'N/A'}</td>
-            </tr>
-            <tr>
-              <td class="label">NO. OF FLOORS</td>
-              <td>${reportData.numberOfFloors || 'N/A'}</td>
-            </tr>
-            <tr>
-              <td class="label">STAGE OF WORK</td>
-              <td>${reportData.stageOfWork || 'N/A'}</td>
-            </tr>
-            <tr>
-              <td class="label">STATE OF BUILDING</td>
-              <td>${buildingStates.join(', ') || 'N/A'}</td>
-            </tr>
-          </table>
-        </div>
-
-        <!-- Observations -->
-        <div class="section">
-          <div class="section-title">OBSERVATIONS</div>
-          <p style="text-align: justify; margin-bottom: 8px;">
-            Based on our evaluation, of the current state of work, at the above site, we report as follows:
-          </p>
-          <div style="margin-top: 4px;">
-            ${observationsHtml || '<p>No observations recorded</p>'}
+          <div class="page-header-first">
+            <img src="/header.png" alt="Header" />
           </div>
-        </div>
-
-        <!-- Executive Summary -->
-        <div class="section page-break">
-          <div class="section-title">1. EXECUTIVE SUMMARY</div>
-          <p style="text-align: justify;">${reportData.executiveSummary || 'N/A'}</p>
-        </div>
-
-      
-       
-
-        <!-- Challenges -->
-        <div class="section">
-          <div class="section-title">2. CHALLENGES AND LIMITATIONS</div>
-          <p style="text-align: justify;">${reportData.challengesAndLimitations || 'N/A'}</p>
-        </div>
-
-        <!-- Appendices/Photos -->
-        <div class="section page-break">
-          <div class="section-title">3. APPENDICES - PHOTOGRAPHIC EVIDENCE</div>
-          <div class="photos-grid">
-            ${photoRows}
+          <div class="report-title">
+            <h2>CAP OBSERVATION SHEET</h2>
+            <p>Monitoring and Regulation of Buildings Report</p>
+            <p><strong>Report No: ${reportData.reportNumber || 'DRAFT'}</strong></p>
           </div>
-        </div>
-
-        <!-- Signature -->
-        <div class="signature-section">
-          <img src="/signature.png" class="signature-image" alt="Signature" />
-          <div class="section-title">AUTHORIZED SIGNATORY</div>
+          <div class="section">
+            <table>
+              <tr>
+                <td class="label">DISTRICT</td>
+                <td>${reportData.district || 'N/A'}</td>
+              </tr>
+              <tr>
+                <td class="label">CAP PRACTITIONER</td>
+                <td>${reportData.capPractitioner || 'N/A'}</td>
+              </tr>
+              <tr>
+                <td class="label">ADDRESS OF INFRACTION</td>
+                <td>${reportData.addressOfInfraction || 'N/A'}</td>
+              </tr>
+              <tr>
+                <td class="label">NEAREST LANDMARK (IF ANY)</td>
+                <td>${reportData.nearestLandmark || 'N/A'}</td>
+              </tr>
+              <tr>
+                <td class="label">GPS COORDINATES</td>
+                <td>${reportData.gpsCoordinates || 'N/A'}</td>
+              </tr>
+              <tr>
+                <td class="label">DATE OF IDENTIFICATION</td>
+                <td>${reportData.dateOfIdentification || 'N/A'}</td>
+              </tr>
+              <tr>
+                <td class="label">NO. OF FLOORS</td>
+                <td>${reportData.numberOfFloors || 'N/A'}</td>
+              </tr>
+              <tr>
+                <td class="label">STAGE OF WORK</td>
+                <td>${reportData.stageOfWork || 'N/A'}</td>
+              </tr>
+              <tr>
+                <td class="label">STATE OF BUILDING</td>
+                <td>${buildingStates.join(', ') || 'N/A'}</td>
+              </tr>
+            </table>
+          </div>
+          <div class="section">
+            <div class="section-title">OBSERVATIONS</div>
+            <p style="text-align: justify; margin-bottom: 8px;">
+              Based on our evaluation, of the current state of work, at the above site, we report as follows:
+            </p>
+            <div style="margin-top: 4px;">
+              ${observationsHtml || '<p>No observations recorded</p>'}
+            </div>
+          </div>
+          <div class="section page-break">
+            <div class="section-title">1. EXECUTIVE SUMMARY</div>
+            <p style="text-align: justify;">${reportData.executiveSummary || 'N/A'}</p>
+          </div>
+          <div class="section">
+            <div class="section-title">2. CHALLENGES AND LIMITATIONS</div>
+            <p style="text-align: justify;">${reportData.challengesAndLimitations || 'N/A'}</p>
+          </div>
+          <div class="section page-break">
+            <div class="section-title">3. APPENDICES - PHOTOGRAPHIC EVIDENCE</div>
+            <div class="photos-grid">
+              ${photoRows}
+            </div>
+          </div>
+          <div class="signature-section">
+            <img src="/signature.png" class="signature-image" alt="Signature" />
+            <div class="section-title">AUTHORIZED SIGNATORY</div>
           </div>
         </div>
       </body>
