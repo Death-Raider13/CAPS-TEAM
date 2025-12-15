@@ -371,13 +371,19 @@ const CAPReportSystem = () => {
   };
 
   const saveToDraft = async () => {
+    const isEditingExisting = !!formData.id;
+    const draftId = isEditingExisting ? formData.id : Date.now();
+
     const draft = {
-      id: Date.now(),
       ...formData,
+      id: draftId,
       savedAt: new Date().toLocaleString()
     };
 
-    const updatedDrafts = [draft, ...drafts];
+    const updatedDrafts = isEditingExisting
+      ? drafts.map(d => (d.id === draftId ? draft : d))
+      : [draft, ...drafts];
+
     setDrafts(updatedDrafts);
     localStorage.setItem('capDrafts', JSON.stringify(updatedDrafts));
 
