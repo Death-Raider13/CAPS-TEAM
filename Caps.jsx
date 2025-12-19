@@ -182,29 +182,8 @@ const CAPReportSystem = () => {
 
         setDrafts(safeDrafts);
         setSavedReports(safeReports);
-
-        try {
-          localStorage.setItem('capDrafts', JSON.stringify(safeDrafts));
-          localStorage.setItem('capSavedReports', JSON.stringify(safeReports));
-        } catch (storageErr) {
-          console.error('Error caching drafts/reports to localStorage:', storageErr);
-        }
       } catch (err) {
         console.error('Error loading drafts/reports from Supabase:', err);
-
-        // Fallback to any data already stored locally
-        try {
-          const storedDrafts = localStorage.getItem('capDrafts');
-          const storedReports = localStorage.getItem('capSavedReports');
-          if (storedDrafts) {
-            setDrafts(JSON.parse(storedDrafts));
-          }
-          if (storedReports) {
-            setSavedReports(JSON.parse(storedReports));
-          }
-        } catch (parseErr) {
-          console.error('Error reading drafts/reports from localStorage:', parseErr);
-        }
       }
     };
 
@@ -437,17 +416,6 @@ const CAPReportSystem = () => {
     setDrafts(sortedDrafts);
 
     try {
-      const draftsForStorage = sortedDrafts.map(d => ({
-        ...d,
-        photos: []
-      }));
-
-      localStorage.setItem('capDrafts', JSON.stringify(draftsForStorage));
-    } catch (storageErr) {
-      console.error('Error caching drafts to localStorage:', storageErr);
-    }
-
-    try {
       const row = {
         id: draft.id,
         report_number: draft.reportNumber || null,
@@ -486,96 +454,228 @@ const CAPReportSystem = () => {
     alert('Draft saved successfully!');
     setActiveTab('drafts');
     window.scrollTo({ top: 0, behavior: 'smooth' });
-
-    localStorage.removeItem('capCurrentDraft');
-    setFormData({
-      reportNumber: '',
-      district: '',
-      capPractitioner: '',
-      addressOfInfraction: '',
-      nearestLandmark: '',
-      gpsCoordinates: '',
-      dateOfIdentification: '',
-      numberOfFloors: '',
-      stageOfWork: '',
-      stateOfBuilding: {
-        abandoned: false,
-        completed: false,
-        underConstruction: false,
-        distressed: false
-      },
-      observations: {
-        noticeLetter: false,
-        noPlanningPermit: false,
-        noStageCertification: false,
-        noInsurance: false,
-        noProjectBoard: false,
-        nonConformity: false,
-        harassment: false,
-        falseInformation: false,
-        breakOfSeal: false,
-        noCertificateOfCompletion: false,
-        noFireSafety: false,
-        distressedStructure: false,
-        noDemolitionPermit: false,
-        noAuthorizationToDemolish: false,
-        otherObservations: ''
-      },
-      observationsRichText: '',
-      executiveSummary: '',
-      siteLocation: '',
-      typeOfBuilding: '',
-      recommendationStatus: '',
-      challengesAndLimitations: '',
-      photos: []
-    });
   };
 
   const loadDraft = (draft) => {
-    // Load a draft into the form with safe defaults
-    setFormData({
-      id: draft.id,
-      reportNumber: draft.reportNumber || '',
-      district: draft.district || '',
-      capPractitioner: draft.capPractitioner || '',
-      addressOfInfraction: draft.addressOfInfraction || '',
-      nearestLandmark: draft.nearestLandmark || '',
-      gpsCoordinates: draft.gpsCoordinates || '',
-      dateOfIdentification: draft.dateOfIdentification || '',
-      numberOfFloors: draft.numberOfFloors || '',
-      stageOfWork: draft.stageOfWork || '',
-      stateOfBuilding: draft.stateOfBuilding || {
-        abandoned: false,
-        completed: false,
-        underConstruction: false,
-        distressed: false
-      },
-      observations: draft.observations || {
-        noticeLetter: false,
-        noPlanningPermit: false,
-        noStageCertification: false,
-        noInsurance: false,
-        noProjectBoard: false,
-        nonConformity: false,
-        harassment: false,
-        falseInformation: false,
-        breakOfSeal: false,
-        noCertificateOfCompletion: false,
-        noFireSafety: false,
-        distressedStructure: false,
-        noDemolitionPermit: false,
-        noAuthorizationToDemolish: false,
-        otherObservations: ''
-      },
-      observationsRichText: draft.observationsRichText || '',
-      executiveSummary: draft.executiveSummary || '',
-      siteLocation: draft.siteLocation || '',
-      typeOfBuilding: draft.typeOfBuilding || '',
-      recommendationStatus: draft.recommendationStatus || '',
-      challengesAndLimitations: draft.challengesAndLimitations || '',
-      photos: draft.photos || []
-    });
+    setFormData(draft);
     window.scrollTo({ top: 0, behavior: 'smooth' });
+  };
+
+  const generatePDFHTML = (reportData) => {
+    const buildingStates = [];
+    if (reportData.stateOfBuilding?.abandoned) buildingStates.push('ABANDONED');
+    if (reportData.stateOfBuilding?.completed) buildingStates.push('COMPLETED');
+    if (reportData.stateOfBuilding?.underConstruction) buildingStates.push('UNDER CONSTRUCTION/RENOVATION');
+    if (reportData.stateOfBuilding?.distressed) buildingStates.push('DISTRESSED/DEFECTIVE');
+
+    const observationsHtml = reportData.observationsRichText || '';
+    const photos = reportData.photos || [];
+
+    const photoRows = photos
+      .map((photo, index) => {
+        const titleHtml = photo.title
+          ? '<p class="photo-custom-title">' + photo.title + '</p>'
+          : '';
+        return (
+          '<div class="photo-card">' +
+            '<div class="photo-inner">' +
+              '<img src="' + photo.data + '" class="photo-image" />' +
+              '<p class="photo-title">APPENDIX ' + (index + 1) + '</p>' +
+              titleHtml +
+              '<p class="photo-meta">GPS: ' + photo.gps + '</p>' +
+              '<p class="photo-time">' + photo.timestamp + '</p>' +
+            '</div>' +
+          '</div>'
+        );
+      })
+      .join('');
+
+    const styles = `
+      @page {
+        size: A4;
+        margin: 20mm;
+      }
+      body {
+        font-family: Arial, sans-serif;
+        font-size: 11pt;
+        line-height: 1.4;
+        color: #000;
+        margin: 0;
+        background: #ffffff;
+      }
+      .page-content {
+        padding: 10mm 10mm 25mm 10mm;
+        box-sizing: border-box;
+      }
+      .page-footer {
+        position: fixed;
+        left: 20mm;
+        right: 20mm;
+        bottom: 10mm;
+        z-index: -1;
+      }
+      .page-footer img {
+        width: 100%;
+      }
+      .page-header-first img {
+        width: 100%;
+        display: block;
+      }
+      .report-title {
+        text-align: center;
+        margin: 18px 0 12px;
+      }
+      .report-title h2 {
+        margin: 0 0 4px;
+        font-size: 18px;
+      }
+      .report-title p {
+        margin: 2px 0;
+        font-size: 11px;
+      }
+      .section {
+        margin-bottom: 16px;
+      }
+      .section-title {
+        font-weight: bold;
+        margin-bottom: 8px;
+        text-transform: uppercase;
+        border-bottom: 2px solid #0a56a7;
+        padding-bottom: 4px;
+      }
+      table {
+        width: 100%;
+        border-collapse: collapse;
+        margin-top: 8px;
+      }
+      td {
+        padding: 6px 8px;
+        vertical-align: top;
+        border: 1px solid #dddddd;
+        font-size: 11px;
+      }
+      td.label {
+        width: 35%;
+        font-weight: bold;
+        background: #f5f5f5;
+      }
+      .photos-grid {
+        display: grid;
+        grid-template-columns: repeat(2, 1fr);
+        gap: 12px;
+      }
+      .photo-card {
+        page-break-inside: avoid;
+      }
+      .photo-inner {
+        border: 1px solid #ddd;
+        padding: 8px;
+        text-align: center;
+        background: #ffffff;
+      }
+      .photo-image {
+        width: 100%;
+        height: 160px;
+        object-fit: cover;
+      }
+      .photo-title {
+        margin-top: 8px;
+        font-weight: bold;
+      }
+      .photo-custom-title {
+        margin-top: 4px;
+        font-size: 10px;
+        font-style: italic;
+      }
+      .photo-meta {
+        font-size: 11px;
+        color: #666;
+      }
+      .photo-time {
+        font-size: 10px;
+        color: #999;
+      }
+      .signature-section {
+        text-align: center;
+        margin-top: 30px;
+      }
+      .signature-image {
+        width: 160px;
+        margin-bottom: 8px;
+      }
+      @media print {
+        body { margin: 0; }
+        .no-print { display: none; }
+      }
+    `;
+
+    let html = '';
+    html += '<!DOCTYPE html>';
+    html += '<html>';
+    html += '<head>';
+    html += '<meta charset="utf-8">';
+    html += '<title>CAP Observation Report - ' + (reportData.reportNumber || 'Draft') + '</title>';
+    html += '<style>' + styles + '</style>';
+    html += '</head>';
+    html += '<body>';
+    html += '<div class="page-footer"><img src="/footer.png" alt="Footer" /></div>';
+    html += '<div class="page-content">';
+    html += '<div class="page-header-first"><img src="/header.png" alt="Header" /></div>';
+    html += '<div class="report-title">';
+    html += '<h2>CAP OBSERVATION SHEET</h2>';
+    html += '<p>Monitoring and Regulation of Buildings Report</p>';
+    html += '<p><strong>Report No: ' + (reportData.reportNumber || 'DRAFT') + '</strong></p>';
+    html += '</div>';
+
+    html += '<div class="section"><table>';
+    html += '<tr><td class="label">DISTRICT</td><td>' + (reportData.district || 'N/A') + '</td></tr>';
+    html += '<tr><td class="label">CAP PRACTITIONER</td><td>' + (reportData.capPractitioner || 'N/A') + '</td></tr>';
+    html += '<tr><td class="label">ADDRESS OF INFRACTION</td><td>' + (reportData.addressOfInfraction || 'N/A') + '</td></tr>';
+    html += '<tr><td class="label">NEAREST LANDMARK (IF ANY)</td><td>' + (reportData.nearestLandmark || 'N/A') + '</td></tr>';
+    html += '<tr><td class="label">GPS COORDINATES</td><td>' + (reportData.gpsCoordinates || 'N/A') + '</td></tr>';
+    html += '<tr><td class="label">DATE OF IDENTIFICATION</td><td>' + (reportData.dateOfIdentification || 'N/A') + '</td></tr>';
+    html += '<tr><td class="label">NO. OF FLOORS</td><td>' + (reportData.numberOfFloors || 'N/A') + '</td></tr>';
+    html += '<tr><td class="label">STAGE OF WORK</td><td>' + (reportData.stageOfWork || 'N/A') + '</td></tr>';
+    html += '<tr><td class="label">STATE OF BUILDING</td><td>' + (buildingStates.join(', ') || 'N/A') + '</td></tr>';
+    html += '</table></div>';
+
+    html += '<div class="section">';
+    html += '<div class="section-title">OBSERVATIONS</div>';
+    html += '<p style="text-align: justify; margin-bottom: 8px;">';
+    html += 'Based on our evaluation, of the current state of work, at the above site, we report as follows:';
+    html += '</p>';
+    html += '<div style="margin-top: 4px;">';
+    html += observationsHtml || '<p>No observations recorded</p>';
+    html += '</div>';
+    html += '</div>';
+
+    html += '<div class="section page-break">';
+    html += '<div class="section-title">1. EXECUTIVE SUMMARY</div>';
+    html += '<p style="text-align: justify;">' + (reportData.executiveSummary || 'N/A') + '</p>';
+    html += '</div>';
+
+    html += '<div class="section">';
+    html += '<div class="section-title">2. CHALLENGES AND LIMITATIONS</div>';
+    html += '<p style="text-align: justify;">' + (reportData.challengesAndLimitations || 'N/A') + '</p>';
+    html += '</div>';
+
+    html += '<div class="section page-break">';
+    html += '<div class="section-title">3. APPENDICES - PHOTOGRAPHIC EVIDENCE</div>';
+    html += '<div class="photos-grid">';
+    html += photoRows;
+    html += '</div>';
+    html += '</div>';
+
+    html += '<div class="signature-section">';
+    html += '<img src="/signature.png" class="signature-image" alt="Signature" />';
+    html += '<div class="section-title">AUTHORIZED SIGNATORY</div>';
+    html += '</div>';
+
+    html += '</div>'; // page-content
+    html += '</body>';
+    html += '</html>';
+
+    return html;
   };
 
   const generatePDF = async () => {
@@ -589,15 +689,15 @@ const CAPReportSystem = () => {
       return;
     }
 
+    const reportId = formData.id || Date.now();
+
     const reportData = {
-      id: Date.now(),
+      id: reportId,
       ...formData,
       generatedAt: new Date().toLocaleString()
     };
 
-    const updatedReports = [reportData, ...savedReports];
-    setSavedReports(updatedReports);
-    localStorage.setItem('capSavedReports', JSON.stringify(updatedReports));
+    setSavedReports(prev => [{ ...reportData }, ...prev]);
 
     try {
       const row = {
@@ -612,23 +712,7 @@ const CAPReportSystem = () => {
         number_of_floors: reportData.numberOfFloors || null,
         stage_of_work: reportData.stageOfWork || null,
         state_of_building: reportData.stateOfBuilding || null,
-        observations: reportData.observations || {
-          noticeLetter: false,
-          noPlanningPermit: false,
-          noStageCertification: false,
-          noInsurance: false,
-          noProjectBoard: false,
-          nonConformity: false,
-          harassment: false,
-          falseInformation: false,
-          breakOfSeal: false,
-          noCertificateOfCompletion: false,
-          noFireSafety: false,
-          distressedStructure: false,
-          noDemolitionPermit: false,
-          noAuthorizationToDemolish: false,
-          otherObservations: ''
-        },
+        observations: reportData.observations || null,
         observations_rich_text: reportData.observationsRichText || null,
         executive_summary: reportData.executiveSummary || null,
         site_location: reportData.siteLocation || null,
@@ -636,9 +720,7 @@ const CAPReportSystem = () => {
         recommendation_status: reportData.recommendationStatus || null,
         challenges_and_limitations: reportData.challengesAndLimitations || null,
         photos: reportData.photos || [],
-        generated_at: reportData.generatedAt
-          ? new Date(reportData.generatedAt).toISOString()
-          : new Date().toISOString()
+        generated_at: new Date().toISOString()
       };
 
       const { error } = await supabase
@@ -652,77 +734,35 @@ const CAPReportSystem = () => {
       console.error('Error saving report to Supabase:', err);
     }
 
-    localStorage.removeItem('capCurrentDraft');
-
-    alert('Report saved successfully! You can now download or email it from the "Saved Reports" section.');
+    alert('Report saved successfully! You can now print or download it from the "Saved Reports" tab.');
     setActiveTab('saved');
     window.scrollTo({ top: 0, behavior: 'smooth' });
-
-    setFormData({
-      reportNumber: '',
-      district: '',
-      capPractitioner: '',
-      addressOfInfraction: '',
-      nearestLandmark: '',
-      gpsCoordinates: '',
-      dateOfIdentification: '',
-      numberOfFloors: '',
-      stageOfWork: '',
-      stateOfBuilding: {
-        abandoned: false,
-        completed: false,
-        underConstruction: false,
-        distressed: false
-      },
-      observations: {
-        noticeLetter: false,
-        noPlanningPermit: false,
-        noStageCertification: false,
-        noInsurance: false,
-        noProjectBoard: false,
-        nonConformity: false,
-        harassment: false,
-        falseInformation: false,
-        breakOfSeal: false,
-        noCertificateOfCompletion: false,
-        noFireSafety: false,
-        distressedStructure: false,
-        noDemolitionPermit: false,
-        noAuthorizationToDemolish: false,
-        otherObservations: ''
-      },
-      observationsRichText: '',
-      executiveSummary: '',
-      siteLocation: '',
-      typeOfBuilding: '',
-      recommendationStatus: '',
-      challengesAndLimitations: '',
-      photos: []
-    });
   };
 
   const downloadPDF = (report) => {
-    // Placeholder so Print/Download button does not crash. The report is already saved in Supabase.
-    alert('Print/Download is not fully implemented yet. The report is saved under "Saved Reports".');
-  };
+    if (!report) return;
 
-  const deleteDraft = async (draftId) => {
-    const updatedDrafts = drafts.filter(d => d.id !== draftId);
-    setDrafts(updatedDrafts);
+    const htmlContent = generatePDFHTML(report);
+    const printWindow = window.open('', '_blank');
+    if (!printWindow) return;
 
-    localStorage.setItem('capDrafts', JSON.stringify(updatedDrafts));
+    printWindow.document.open();
+    printWindow.document.write(htmlContent);
+    printWindow.document.close();
 
-    try {
-      const { error } = await supabase
-        .from('drafts')
-        .delete()
-        .eq('id', draftId);
-
-      if (error) {
-        console.error('Error deleting draft from Supabase:', error);
+    const triggerPrint = () => {
+      try {
+        printWindow.focus();
+        printWindow.print();
+      } catch (e) {
+        console.error('Error triggering print dialog', e);
       }
-    } catch (err) {
-      console.error('Error deleting draft from Supabase:', err);
+    };
+
+    if (printWindow.document.readyState === 'complete') {
+      triggerPrint();
+    } else {
+      printWindow.onload = triggerPrint;
     }
   };
 
