@@ -1,7 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { Camera, Save, FileText, Trash2, Download, Mail } from 'lucide-react';
-
-const API_BASE = 'https://caps-team.up.railway.app/api';
+import { supabase } from './supabaseClient';
 
 const CAPReportSystem = () => {
   const [formData, setFormData] = useState({
@@ -67,22 +66,119 @@ const CAPReportSystem = () => {
     }
   }, [formData.observationsRichText]);
 
-  // Load existing drafts and reports from backend (or localStorage fallback) after login
   useEffect(() => {
     if (!isLoggedIn) return;
 
     const loadData = async () => {
       try {
-        const [draftRes, reportRes] = await Promise.all([
-          fetch(`${API_BASE}/drafts`),
-          fetch(`${API_BASE}/reports`)
+        const [draftResult, reportResult] = await Promise.all([
+          supabase
+            .from('drafts')
+            .select('*')
+            .order('report_number', { ascending: true }),
+          supabase
+            .from('reports')
+            .select('*')
+            .order('generated_at', { ascending: false })
         ]);
 
-        const draftsData = await draftRes.json();
-        const reportsData = await reportRes.json();
+        if (draftResult.error) throw draftResult.error;
+        if (reportResult.error) throw reportResult.error;
 
-        const safeDrafts = Array.isArray(draftsData) ? draftsData : [];
-        const safeReports = Array.isArray(reportsData) ? reportsData : [];
+        const draftsData = draftResult.data || [];
+        const reportsData = reportResult.data || [];
+
+        const safeDrafts = Array.isArray(draftsData)
+          ? draftsData.map(row => ({
+              id: row.id,
+              reportNumber: row.report_number || '',
+              district: row.district || '',
+              capPractitioner: row.cap_practitioner || '',
+              addressOfInfraction: row.address_of_infraction || '',
+              nearestLandmark: row.nearest_landmark || '',
+              gpsCoordinates: row.gps_coordinates || '',
+              dateOfIdentification: row.date_of_identification || '',
+              numberOfFloors: row.number_of_floors || '',
+              stageOfWork: row.stage_of_work || '',
+              stateOfBuilding: row.state_of_building || {
+                abandoned: false,
+                completed: false,
+                underConstruction: false,
+                distressed: false
+              },
+              observations: row.observations || {
+                noticeLetter: false,
+                noPlanningPermit: false,
+                noStageCertification: false,
+                noInsurance: false,
+                noProjectBoard: false,
+                nonConformity: false,
+                harassment: false,
+                falseInformation: false,
+                breakOfSeal: false,
+                noCertificateOfCompletion: false,
+                noFireSafety: false,
+                distressedStructure: false,
+                noDemolitionPermit: false,
+                noAuthorizationToDemolish: false,
+                otherObservations: ''
+              },
+              observationsRichText: row.observations_rich_text || '',
+              executiveSummary: row.executive_summary || '',
+              siteLocation: row.site_location || '',
+              typeOfBuilding: row.type_of_building || '',
+              recommendationStatus: row.recommendation_status || '',
+              challengesAndLimitations: row.challenges_and_limitations || '',
+              photos: row.photos || [],
+              savedAt: row.saved_at || ''
+            }))
+          : [];
+
+        const safeReports = Array.isArray(reportsData)
+          ? reportsData.map(row => ({
+              id: row.id,
+              reportNumber: row.report_number || '',
+              district: row.district || '',
+              capPractitioner: row.cap_practitioner || '',
+              addressOfInfraction: row.address_of_infraction || '',
+              nearestLandmark: row.nearest_landmark || '',
+              gpsCoordinates: row.gps_coordinates || '',
+              dateOfIdentification: row.date_of_identification || '',
+              numberOfFloors: row.number_of_floors || '',
+              stageOfWork: row.stage_of_work || '',
+              stateOfBuilding: row.state_of_building || {
+                abandoned: false,
+                completed: false,
+                underConstruction: false,
+                distressed: false
+              },
+              observations: row.observations || {
+                noticeLetter: false,
+                noPlanningPermit: false,
+                noStageCertification: false,
+                noInsurance: false,
+                noProjectBoard: false,
+                nonConformity: false,
+                harassment: false,
+                falseInformation: false,
+                breakOfSeal: false,
+                noCertificateOfCompletion: false,
+                noFireSafety: false,
+                distressedStructure: false,
+                noDemolitionPermit: false,
+                noAuthorizationToDemolish: false,
+                otherObservations: ''
+              },
+              observationsRichText: row.observations_rich_text || '',
+              executiveSummary: row.executive_summary || '',
+              siteLocation: row.site_location || '',
+              typeOfBuilding: row.type_of_building || '',
+              recommendationStatus: row.recommendation_status || '',
+              challengesAndLimitations: row.challenges_and_limitations || '',
+              photos: row.photos || [],
+              generatedAt: row.generated_at || ''
+            }))
+          : [];
 
         setDrafts(safeDrafts);
         setSavedReports(safeReports);
@@ -94,7 +190,7 @@ const CAPReportSystem = () => {
           console.error('Error caching drafts/reports to localStorage:', storageErr);
         }
       } catch (err) {
-        console.error('Error loading drafts/reports from backend:', err);
+        console.error('Error loading drafts/reports from Supabase:', err);
 
         // Fallback to any data already stored locally
         try {
@@ -200,57 +296,6 @@ const CAPReportSystem = () => {
         observationsRichText: observationsEditorRef.current.innerHTML
       }));
     }
-  };
-
-  const handleObservationsKeyDown = (e) => {
-    if (e.key !== 'Enter') return;
-
-    e.preventDefault();
-    const editor = observationsEditorRef.current;
-    if (!editor) return;
-
-    const text = editor.innerText || '';
-    const lines = text.split(/\n/).map(l => l.trim()).filter(l => l.length > 0);
-
-    let prefix = '';
-    if (lines.length > 0) {
-      const last = lines[lines.length - 1];
-      const numMatch = last.match(/^(\d+)\./);
-      if (numMatch) {
-        const lastNum = parseInt(numMatch[1], 10) || 0;
-        prefix = `${lastNum + 1}. `;
-      } else if (last.startsWith('•')) {
-        prefix = '• ';
-      }
-    }
-
-    let html = editor.innerHTML || '';
-    const trimmed = html.trim();
-
-    if (prefix) {
-      if (!trimmed) {
-        editor.innerHTML = prefix;
-      } else {
-        editor.innerHTML = trimmed + '<br>' + prefix;
-      }
-    } else {
-      editor.innerHTML = html + '<br>';
-    }
-
-    editor.focus();
-    const selection = window.getSelection && window.getSelection();
-    if (selection && document.createRange) {
-      const range = document.createRange();
-      range.selectNodeContents(editor);
-      range.collapse(false);
-      selection.removeAllRanges();
-      selection.addRange(range);
-    }
-
-    setFormData(prev => ({
-      ...prev,
-      observationsRichText: editor.innerHTML
-    }));
   };
 
   const handleInputChange = (e) => {
@@ -384,17 +429,58 @@ const CAPReportSystem = () => {
       ? drafts.map(d => (d.id === draftId ? draft : d))
       : [draft, ...drafts];
 
-    setDrafts(updatedDrafts);
-    localStorage.setItem('capDrafts', JSON.stringify(updatedDrafts));
+    // keep drafts sorted by reportNumber in the UI
+    const sortedDrafts = [...updatedDrafts].sort((a, b) =>
+      (a.reportNumber || '').localeCompare(b.reportNumber || '')
+    );
+
+    setDrafts(sortedDrafts);
 
     try {
-      await fetch(`${API_BASE}/drafts`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(draft)
-      });
+      const draftsForStorage = sortedDrafts.map(d => ({
+        ...d,
+        photos: []
+      }));
+
+      localStorage.setItem('capDrafts', JSON.stringify(draftsForStorage));
+    } catch (storageErr) {
+      console.error('Error caching drafts to localStorage:', storageErr);
+    }
+
+    try {
+      const row = {
+        id: draft.id,
+        report_number: draft.reportNumber || null,
+        district: draft.district || null,
+        cap_practitioner: draft.capPractitioner || null,
+        address_of_infraction: draft.addressOfInfraction || null,
+        nearest_landmark: draft.nearestLandmark || null,
+        gps_coordinates: draft.gpsCoordinates || null,
+        date_of_identification: draft.dateOfIdentification || null,
+        number_of_floors: draft.numberOfFloors || null,
+        stage_of_work: draft.stageOfWork || null,
+        state_of_building: draft.stateOfBuilding || null,
+        observations_rich_text: draft.observationsRichText || null,
+        executive_summary: draft.executiveSummary || null,
+        site_location: draft.siteLocation || null,
+        type_of_building: draft.typeOfBuilding || null,
+        recommendation_status: draft.recommendationStatus || null,
+        challenges_and_limitations: draft.challengesAndLimitations || null,
+        photos: draft.photos || [],
+        saved_at: draft.savedAt
+          ? new Date(draft.savedAt).toISOString()
+          : new Date().toISOString()
+      };
+
+      const { error } = await supabase
+        .from('drafts')
+        .upsert(row, { onConflict: 'id' });
+
+      if (error) {
+        console.error('Error saving draft to Supabase:', error);
+      }
     } catch (err) {
-      console.error('Error saving draft to backend:', err);
+      console.error('Error saving draft to Supabase:', err);
     }
 
     alert('Draft saved successfully!');
@@ -402,316 +488,6 @@ const CAPReportSystem = () => {
     window.scrollTo({ top: 0, behavior: 'smooth' });
 
     localStorage.removeItem('capCurrentDraft');
-    setFormData({
-      reportNumber: '',
-      district: '',
-      capPractitioner: '',
-      addressOfInfraction: '',
-      nearestLandmark: '',
-      gpsCoordinates: '',
-      dateOfIdentification: '',
-      numberOfFloors: '',
-      stageOfWork: '',
-      stateOfBuilding: {
-        abandoned: false,
-        completed: false,
-        underConstruction: false,
-        distressed: false
-      },
-      observationsRichText: '',
-      executiveSummary: '',
-      siteLocation: '',
-      typeOfBuilding: '',
-      recommendationStatus: '',
-      challengesAndLimitations: '',
-      photos: []
-    });
-  };
-
-  const generatePDFHTML = (reportData) => {
-    const buildingStates = [];
-    if (reportData.stateOfBuilding?.abandoned) buildingStates.push('ABANDONED');
-    if (reportData.stateOfBuilding?.completed) buildingStates.push('COMPLETED');
-    if (reportData.stateOfBuilding?.underConstruction) buildingStates.push('UNDER CONSTRUCTION/RENOVATION');
-    if (reportData.stateOfBuilding?.distressed) buildingStates.push('DISTRESSED/DEFECTIVE');
-
-    const observationsHtml = reportData.observationsRichText || '';
-
-    const photoRows = (reportData.photos || []).map((photo, index) => `
-      <div class="photo-card">
-        <div class="photo-inner">
-          <img src="${photo.data}" class="photo-image" />
-          <p class="photo-title">APPENDIX ${index + 1}</p>
-          ${photo.title ? `<p class="photo-custom-title">${photo.title}</p>` : ''}
-          <p class="photo-meta">GPS: ${photo.gps}</p>
-          <p class="photo-time">${photo.timestamp}</p>
-        </div>
-      </div>
-    `).join('');
-
-    return `
-      <!DOCTYPE html>
-      <html>
-      <head>
-        <meta charset="utf-8">
-        <title>CAP Observation Report - ${reportData.reportNumber || 'Draft'}</title>
-        <style>
-          @page {
-            size: A4;
-            margin: 20mm;
-          }
-          body {
-            font-family: Arial, sans-serif;
-            font-size: 11pt;
-            line-height: 1.4;
-            color: #000;
-            margin: 0;
-          }
-          .page-footer {
-            position: fixed;
-            left: 20mm;
-            right: 20mm;
-            bottom: 10mm;
-            z-index: -1;
-          }
-          .page-footer img {
-            width: 100%;
-          }
-          .page-header-first img {
-            width: 100%;
-            display: block;
-          }
-          .section {
-            margin-bottom: 16px;
-          }
-          .section-title {
-            font-weight: bold;
-            margin-bottom: 8px;
-          }
-          table {
-            width: 100%;
-            border-collapse: collapse;
-          }
-          td {
-            padding: 4px 6px;
-            vertical-align: top;
-          }
-          td.label {
-            width: 35%;
-            font-weight: bold;
-          }
-          .photos-grid {
-            display: grid;
-            grid-template-columns: repeat(2, 1fr);
-            gap: 10px;
-          }
-          .photo-card {
-            page-break-inside: avoid;
-          }
-          .photo-inner {
-            border: 1px solid #ddd;
-            padding: 8px;
-            text-align: center;
-          }
-          .photo-image {
-            width: 100%;
-            height: 160px;
-            object-fit: cover;
-          }
-          .photo-title {
-            margin-top: 8px;
-            font-weight: bold;
-          }
-          .photo-custom-title {
-            margin-top: 4px;
-            font-size: 10px;
-            font-style: italic;
-          }
-          .photo-meta {
-            font-size: 12px;
-            color: #666;
-          }
-          .photo-time {
-            font-size: 11px;
-            color: #999;
-          }
-          @media print {
-            body { margin: 0; }
-            .no-print { display: none; }
-          }
-        </style>
-      </head>
-      <body>
-        <div class="page-footer">
-          <img src="/footer.png" alt="Footer" />
-        </div>
-        <div class="page-content">
-          <div class="page-header-first">
-            <img src="/header.png" alt="Header" />
-          </div>
-          <div class="report-title">
-            <h2>CAP OBSERVATION SHEET</h2>
-            <p>Monitoring and Regulation of Buildings Report</p>
-            <p><strong>Report No: ${reportData.reportNumber || 'DRAFT'}</strong></p>
-          </div>
-          <div class="section">
-            <table>
-              <tr>
-                <td class="label">DISTRICT</td>
-                <td>${reportData.district || 'N/A'}</td>
-              </tr>
-              <tr>
-                <td class="label">CAP PRACTITIONER</td>
-                <td>${reportData.capPractitioner || 'N/A'}</td>
-              </tr>
-              <tr>
-                <td class="label">ADDRESS OF INFRACTION</td>
-                <td>${reportData.addressOfInfraction || 'N/A'}</td>
-              </tr>
-              <tr>
-                <td class="label">NEAREST LANDMARK (IF ANY)</td>
-                <td>${reportData.nearestLandmark || 'N/A'}</td>
-              </tr>
-              <tr>
-                <td class="label">GPS COORDINATES</td>
-                <td>${reportData.gpsCoordinates || 'N/A'}</td>
-              </tr>
-              <tr>
-                <td class="label">DATE OF IDENTIFICATION</td>
-                <td>${reportData.dateOfIdentification || 'N/A'}</td>
-              </tr>
-              <tr>
-                <td class="label">NO. OF FLOORS</td>
-                <td>${reportData.numberOfFloors || 'N/A'}</td>
-              </tr>
-              <tr>
-                <td class="label">STAGE OF WORK</td>
-                <td>${reportData.stageOfWork || 'N/A'}</td>
-              </tr>
-              <tr>
-                <td class="label">STATE OF BUILDING</td>
-                <td>${buildingStates.join(', ') || 'N/A'}</td>
-              </tr>
-            </table>
-          </div>
-          <div class="section">
-            <div class="section-title">OBSERVATIONS</div>
-            <p style="text-align: justify; margin-bottom: 8px;">
-              Based on our evaluation, of the current state of work, at the above site, we report as follows:
-            </p>
-            <div style="margin-top: 4px;">
-              ${observationsHtml || '<p>No observations recorded</p>'}
-            </div>
-          </div>
-          <div class="section page-break">
-            <div class="section-title">1. EXECUTIVE SUMMARY</div>
-            <p style="text-align: justify;">${reportData.executiveSummary || 'N/A'}</p>
-          </div>
-          <div class="section">
-            <div class="section-title">2. CHALLENGES AND LIMITATIONS</div>
-            <p style="text-align: justify;">${reportData.challengesAndLimitations || 'N/A'}</p>
-          </div>
-          <div class="section page-break">
-            <div class="section-title">3. APPENDICES - PHOTOGRAPHIC EVIDENCE</div>
-            <div class="photos-grid">
-              ${photoRows}
-            </div>
-          </div>
-          <div class="signature-section">
-            <img src="/signature.png" class="signature-image" alt="Signature" />
-            <div class="section-title">AUTHORIZED SIGNATORY</div>
-          </div>
-        </div>
-      </body>
-      </html>
-    `;
-  };
-
-  const downloadPDF = async (report) => {
-    const htmlContent = generatePDFHTML(report);
-
-    // Opera Mini has very limited support for downloads and heavy JS; fall back to simple HTML view
-    const ua = (navigator.userAgent || '').toLowerCase();
-    const isOperaMini = ua.includes('opera mini');
-
-    if (isOperaMini) {
-      const viewWindow = window.open('', '_self');
-      if (!viewWindow) return;
-      viewWindow.document.write(htmlContent);
-      viewWindow.document.close();
-      return;
-    }
-
-    // Prefer html2pdf.js when available for a direct PDF download
-    if (window.html2pdf) {
-      try {
-        await window.html2pdf()
-          .from(htmlContent)
-          .set({
-            margin: 0,
-            filename: `CAP_Report_${report.reportNumber || 'Draft'}.pdf`,
-            jsPDF: { unit: 'mm', format: 'a4', orientation: 'portrait' },
-            pagebreak: { mode: ['css', 'legacy'] }
-          })
-          .save();
-        return;
-      } catch (err) {
-        // Fall back to print window behaviour below
-      }
-    }
-
-    // Fallback: open in new window and trigger print dialog
-    const printWindow = window.open('', '_blank');
-    if (!printWindow) return;
-    printWindow.document.write(htmlContent);
-    printWindow.document.close();
-    printWindow.onload = () => {
-      setTimeout(() => {
-        printWindow.print();
-      }, 500);
-    };
-  };
-
-  const generatePDF = async () => {
-    if (formData.photos.length < 1) {
-      alert('Please add at least 1 photo with GPS location before generating PDF');
-      return;
-    }
-
-    if (!formData.reportNumber) {
-      alert('Please enter a Report Number before generating PDF');
-      return;
-    }
-
-    const reportData = {
-      id: Date.now(),
-      ...formData,
-      generatedAt: new Date().toLocaleString()
-    };
-
-    const updatedReports = [reportData, ...savedReports];
-    setSavedReports(updatedReports);
-    localStorage.setItem('capSavedReports', JSON.stringify(updatedReports));
-
-    // Sync report to backend so it’s available on all devices
-    try {
-      await fetch(`${API_BASE}/reports`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(reportData)
-      });
-    } catch (err) {
-      console.error('Error saving report to backend:', err);
-    }
-
-    // Clear current draft after saving
-    localStorage.removeItem('capCurrentDraft');
-    
-    alert('Report saved successfully! You can now download or email it from the "Saved Reports" section.');
-    setActiveTab('saved');
-    window.scrollTo({ top: 0, behavior: 'smooth' });
-
-    // Reset form
     setFormData({
       reportNumber: '',
       district: '',
@@ -756,34 +532,217 @@ const CAPReportSystem = () => {
   };
 
   const loadDraft = (draft) => {
-    setFormData(draft);
+    // Load a draft into the form with safe defaults
+    setFormData({
+      id: draft.id,
+      reportNumber: draft.reportNumber || '',
+      district: draft.district || '',
+      capPractitioner: draft.capPractitioner || '',
+      addressOfInfraction: draft.addressOfInfraction || '',
+      nearestLandmark: draft.nearestLandmark || '',
+      gpsCoordinates: draft.gpsCoordinates || '',
+      dateOfIdentification: draft.dateOfIdentification || '',
+      numberOfFloors: draft.numberOfFloors || '',
+      stageOfWork: draft.stageOfWork || '',
+      stateOfBuilding: draft.stateOfBuilding || {
+        abandoned: false,
+        completed: false,
+        underConstruction: false,
+        distressed: false
+      },
+      observations: draft.observations || {
+        noticeLetter: false,
+        noPlanningPermit: false,
+        noStageCertification: false,
+        noInsurance: false,
+        noProjectBoard: false,
+        nonConformity: false,
+        harassment: false,
+        falseInformation: false,
+        breakOfSeal: false,
+        noCertificateOfCompletion: false,
+        noFireSafety: false,
+        distressedStructure: false,
+        noDemolitionPermit: false,
+        noAuthorizationToDemolish: false,
+        otherObservations: ''
+      },
+      observationsRichText: draft.observationsRichText || '',
+      executiveSummary: draft.executiveSummary || '',
+      siteLocation: draft.siteLocation || '',
+      typeOfBuilding: draft.typeOfBuilding || '',
+      recommendationStatus: draft.recommendationStatus || '',
+      challengesAndLimitations: draft.challengesAndLimitations || '',
+      photos: draft.photos || []
+    });
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  };
+
+  const generatePDF = async () => {
+    if (formData.photos.length < 1) {
+      alert('Please add at least 1 photo with GPS location before generating PDF');
+      return;
+    }
+
+    if (!formData.reportNumber) {
+      alert('Please enter a Report Number before generating PDF');
+      return;
+    }
+
+    const reportData = {
+      id: Date.now(),
+      ...formData,
+      generatedAt: new Date().toLocaleString()
+    };
+
+    const updatedReports = [reportData, ...savedReports];
+    setSavedReports(updatedReports);
+    localStorage.setItem('capSavedReports', JSON.stringify(updatedReports));
+
+    try {
+      const row = {
+        id: reportData.id,
+        report_number: reportData.reportNumber || null,
+        district: reportData.district || null,
+        cap_practitioner: reportData.capPractitioner || null,
+        address_of_infraction: reportData.addressOfInfraction || null,
+        nearest_landmark: reportData.nearestLandmark || null,
+        gps_coordinates: reportData.gpsCoordinates || null,
+        date_of_identification: reportData.dateOfIdentification || null,
+        number_of_floors: reportData.numberOfFloors || null,
+        stage_of_work: reportData.stageOfWork || null,
+        state_of_building: reportData.stateOfBuilding || null,
+        observations: reportData.observations || {
+          noticeLetter: false,
+          noPlanningPermit: false,
+          noStageCertification: false,
+          noInsurance: false,
+          noProjectBoard: false,
+          nonConformity: false,
+          harassment: false,
+          falseInformation: false,
+          breakOfSeal: false,
+          noCertificateOfCompletion: false,
+          noFireSafety: false,
+          distressedStructure: false,
+          noDemolitionPermit: false,
+          noAuthorizationToDemolish: false,
+          otherObservations: ''
+        },
+        observations_rich_text: reportData.observationsRichText || null,
+        executive_summary: reportData.executiveSummary || null,
+        site_location: reportData.siteLocation || null,
+        type_of_building: reportData.typeOfBuilding || null,
+        recommendation_status: reportData.recommendationStatus || null,
+        challenges_and_limitations: reportData.challengesAndLimitations || null,
+        photos: reportData.photos || [],
+        generated_at: reportData.generatedAt
+          ? new Date(reportData.generatedAt).toISOString()
+          : new Date().toISOString()
+      };
+
+      const { error } = await supabase
+        .from('reports')
+        .upsert(row, { onConflict: 'id' });
+
+      if (error) {
+        console.error('Error saving report to Supabase:', error);
+      }
+    } catch (err) {
+      console.error('Error saving report to Supabase:', err);
+    }
+
+    localStorage.removeItem('capCurrentDraft');
+
+    alert('Report saved successfully! You can now download or email it from the "Saved Reports" section.');
+    setActiveTab('saved');
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+
+    setFormData({
+      reportNumber: '',
+      district: '',
+      capPractitioner: '',
+      addressOfInfraction: '',
+      nearestLandmark: '',
+      gpsCoordinates: '',
+      dateOfIdentification: '',
+      numberOfFloors: '',
+      stageOfWork: '',
+      stateOfBuilding: {
+        abandoned: false,
+        completed: false,
+        underConstruction: false,
+        distressed: false
+      },
+      observations: {
+        noticeLetter: false,
+        noPlanningPermit: false,
+        noStageCertification: false,
+        noInsurance: false,
+        noProjectBoard: false,
+        nonConformity: false,
+        harassment: false,
+        falseInformation: false,
+        breakOfSeal: false,
+        noCertificateOfCompletion: false,
+        noFireSafety: false,
+        distressedStructure: false,
+        noDemolitionPermit: false,
+        noAuthorizationToDemolish: false,
+        otherObservations: ''
+      },
+      observationsRichText: '',
+      executiveSummary: '',
+      siteLocation: '',
+      typeOfBuilding: '',
+      recommendationStatus: '',
+      challengesAndLimitations: '',
+      photos: []
+    });
+  };
+
+  const downloadPDF = (report) => {
+    // Placeholder so Print/Download button does not crash. The report is already saved in Supabase.
+    alert('Print/Download is not fully implemented yet. The report is saved under "Saved Reports".');
   };
 
   const deleteDraft = async (draftId) => {
     const updatedDrafts = drafts.filter(d => d.id !== draftId);
     setDrafts(updatedDrafts);
+
     localStorage.setItem('capDrafts', JSON.stringify(updatedDrafts));
 
     try {
-      await fetch(`${API_BASE}/drafts/${draftId}`, {
-        method: 'DELETE'
-      });
+      const { error } = await supabase
+        .from('drafts')
+        .delete()
+        .eq('id', draftId);
+
+      if (error) {
+        console.error('Error deleting draft from Supabase:', error);
+      }
     } catch (err) {
-      console.error('Error deleting draft from backend:', err);
+      console.error('Error deleting draft from Supabase:', err);
     }
   };
 
   const deleteReport = async (reportId) => {
     const updatedReports = savedReports.filter(r => r.id !== reportId);
     setSavedReports(updatedReports);
+
     localStorage.setItem('capSavedReports', JSON.stringify(updatedReports));
 
     try {
-      await fetch(`${API_BASE}/reports/${reportId}`, {
-        method: 'DELETE'
-      });
+      const { error } = await supabase
+        .from('reports')
+        .delete()
+        .eq('id', reportId);
+
+      if (error) {
+        console.error('Error deleting report from Supabase:', error);
+      }
     } catch (err) {
-      console.error('Error deleting report from backend:', err);
+      console.error('Error deleting report from Supabase:', err);
     }
   };
 
