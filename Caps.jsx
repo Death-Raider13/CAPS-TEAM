@@ -71,14 +71,18 @@ const CAPReportSystem = () => {
 
     const loadData = async () => {
       try {
+        // Exclude photos from initial load to avoid timeout (photos are large base64 strings)
+        const draftsColumns = 'id,report_number,district,cap_practitioner,address_of_infraction,nearest_landmark,gps_coordinates,date_of_identification,number_of_floors,stage_of_work,state_of_building,observations_rich_text,executive_summary,site_location,type_of_building,recommendation_status,challenges_and_limitations,saved_at';
+        const reportsColumns = 'id,report_number,district,cap_practitioner,address_of_infraction,nearest_landmark,gps_coordinates,date_of_identification,number_of_floors,stage_of_work,state_of_building,observations_rich_text,executive_summary,site_location,type_of_building,recommendation_status,challenges_and_limitations,generated_at';
+        
         const [draftResult, reportResult] = await Promise.all([
           supabase
             .from('drafts')
-            .select('*')
+            .select(draftsColumns)
             .order('report_number', { ascending: true }),
           supabase
             .from('reports')
-            .select('*')
+            .select(reportsColumns)
             .order('generated_at', { ascending: false })
         ]);
 
@@ -456,8 +460,25 @@ const CAPReportSystem = () => {
     window.scrollTo({ top: 0, behavior: 'smooth' });
   };
 
-  const loadDraft = (draft) => {
-    setFormData(draft);
+  const loadDraft = async (draft) => {
+    // Fetch photos separately since they weren't loaded in the list query
+    try {
+      const { data, error } = await supabase
+        .from('drafts')
+        .select('photos')
+        .eq('id', draft.id)
+        .single();
+      
+      if (!error && data) {
+        setFormData({ ...draft, photos: data.photos || [] });
+      } else {
+        setFormData({ ...draft, photos: [] });
+      }
+    } catch (err) {
+      console.error('Error loading draft photos:', err);
+      setFormData({ ...draft, photos: [] });
+    }
+    setActiveTab('form');
     window.scrollTo({ top: 0, behavior: 'smooth' });
   };
 
@@ -739,10 +760,26 @@ const CAPReportSystem = () => {
     window.scrollTo({ top: 0, behavior: 'smooth' });
   };
 
-  const downloadPDF = (report) => {
+  const downloadPDF = async (report) => {
     if (!report) return;
 
-    const htmlContent = generatePDFHTML(report);
+    // Fetch photos separately since they weren't loaded in the list query
+    let reportWithPhotos = report;
+    try {
+      const { data, error } = await supabase
+        .from('reports')
+        .select('photos')
+        .eq('id', report.id)
+        .single();
+      
+      if (!error && data) {
+        reportWithPhotos = { ...report, photos: data.photos || [] };
+      }
+    } catch (err) {
+      console.error('Error loading report photos:', err);
+    }
+
+    const htmlContent = generatePDFHTML(reportWithPhotos);
     const printWindow = window.open('', '_blank');
     if (!printWindow) return;
 
